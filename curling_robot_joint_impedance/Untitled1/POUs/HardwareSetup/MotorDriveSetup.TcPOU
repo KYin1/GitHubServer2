@@ -1,0 +1,131 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="MotorDriveSetup" Id="{efada3a4-e3a6-4f59-9331-520d071de8c8}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK MotorDriveSetup
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	// hardware address
+    netId		: T_AmsNetId := '120.1.1.15.4.1'; (* NetId of EtherCAT Master *)
+    slaveAddr	: UINT       := 1001; (* Port Number of EtherCAT Slave *)
+	//homeOffset  : DINT       := 0;
+	//homeMethod  : BYTE       := 35;
+	//isCompleted : ARRAY[0..1] OF BOOL := [FALSE, FALSE];
+	isCompleted:BOOL:=FALSE;
+	//VelocityOptions: UDINT:=16#FDB44700;
+	VelocityOptions: UDINT:=16#FEB44700; 
+	//isAllCompleted : BOOL := FALSE;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="InitHomeConfig" Id="{3468e603-dfab-4791-af7c-a3a5ebf4a4b8}">
+      <Declaration><![CDATA[METHOD PUBLIC InitHomeConfig : BOOL
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+	bCompleted : BOOL := FALSE;
+END_VAR
+VAR
+	nIndexAdd : WORD := 16#607C;
+	i : BYTE;
+END_VAR
+
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*IF NOT isCompleted[0] THEN
+	gvl.sdoWriteOnce(sNetId := netId, nSlaveAddr := slaveAddr,
+					 nIndex := 16#607C, nSubIndex := 0, pSrcBuf := ADR(homeOffset), 
+					 cbBufLen := SIZEOF(DINT), bComplAcc := FALSE, bWriteOnce=> isCompleted[0]);
+END_IF
+
+IF isCompleted[0] AND NOT isCompleted[1] THEN
+	gvl.sdoWriteOnce(sNetId := netId, nSlaveAddr := slaveAddr,
+					 nIndex := 16#6098, nSubIndex := 0, pSrcBuf := ADR(homeMethod), 
+					 cbBufLen := SIZEOF(DINT), bComplAcc := FALSE, bWriteOnce=> isCompleted[1]);
+END_IF
+
+isAllCompleted := isCompleted[0] AND isCompleted[1];
+bCompleted := isAllCompleted;*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetHomeOffset" Id="{fca67a78-139f-41a9-90c4-485a286c5234}">
+      <Declaration><![CDATA[METHOD PUBLIC SetHomeOffset : BOOL
+VAR_INPUT
+	hmOffset : DINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//homeOffset := hmOffset;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetSlaveAddr" Id="{eb733c8f-5ad4-4171-aaac-39365eb6b410}">
+      <Declaration><![CDATA[METHOD PUBLIC SetSlaveAddr : BOOL
+VAR_INPUT
+	sNetId		: T_AmsNetId;
+    nSlaveAddr	: UINT ;
+END_VAR
+VAR
+
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[netId	    := sNetId; 
+slaveAddr	:= nSlaveAddr; ]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetVelocityUnit" Id="{178775e5-422c-41a8-88d2-c08319e5fc59}">
+      <Declaration><![CDATA[METHOD PUBLIC SetVelocityUnit : BOOL
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+	bCompleted : BOOL := FALSE;
+END_VAR
+VAR
+	nIndexAdd : WORD := 16#60A9;
+	i : BYTE;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT isCompleted THEN
+	gvl.sdoWriteOnce(sNetId := netId, nSlaveAddr := slaveAddr,
+					 nIndex := 16#60A9, nSubIndex := 0, pSrcBuf := ADR(VelocityOptions), 
+					 cbBufLen := SIZEOF(UDINT), bComplAcc := FALSE, bWriteOnce=> isCompleted);
+END_IF
+bCompleted := isCompleted;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="MotorDriveSetup">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="MotorDriveSetup.InitHomeConfig">
+      <LineId Id="20" Count="0" />
+      <LineId Id="15" Count="1" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="18" Count="1" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="27" Count="0" />
+    </LineIds>
+    <LineIds Name="MotorDriveSetup.SetHomeOffset">
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="MotorDriveSetup.SetSlaveAddr">
+      <LineId Id="11" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="MotorDriveSetup.SetVelocityUnit">
+      <LineId Id="13" Count="3" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="17" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

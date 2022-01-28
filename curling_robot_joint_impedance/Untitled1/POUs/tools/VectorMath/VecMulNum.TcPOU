@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="VecMulNum" Id="{88fabd67-1c26-431b-b752-a955f9bdfd4b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION VecMulNum : Vec3
+VAR_INPUT
+	v : Vec3;
+	n : LREAL;
+END_VAR
+VAR
+	i : INT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR i := 0 TO 2 DO
+    VecMulNum.data[i] := n * v.data[i]; 
+END_FOR]]></ST>
+    </Implementation>
+    <LineIds Name="VecMulNum">
+      <LineId Id="12" Count="1" />
+      <LineId Id="7" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,1529 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="LegController" Id="{6ee626e4-5c1d-4bd7-b968-448936f81c0d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK LegController
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR 
+	legId            : UINT;
+	shankLength      : LREAL := 0.5;
+	thighLength      : LREAL := 0.5;
+	sagPlaneOffset	  :LREAL:=0.1246;
+	
+	motorAnglesIn    : ARRAY[0..2] OF LREAL := [0, 0, 0];//电机角度+0,0,pi,正运动学运算输入
+	motorAngVelIn    : ARRAY[0..2] OF LREAL := [0, 0, 0];
+	jointTorqueIn    : ARRAY[0..2] OF LREAL := [0, 0, 0];
+	
+	motorRefAnglesIn : ARRAY[0..2] OF LREAL := [0, 0, 0];
+	
+	motorAnglesOut   : ARRAY[0..2] OF LREAL := [0, 0, 0];
+	motorAngVelOut   : ARRAY[0..2] OF LREAL := [0, 0, 0];
+	jointTorqueOut   : ARRAY[0..2] OF LREAL := [0, 0, 0];
+
+	phy2absMapping   : ARRAY[0..2] OF INT   := [2, 1, 0];
+	//axisAngleOffset  : ARRAY[0..2] OF LREAL := [0, 0, pi];
+	axisAngleOffset  : ARRAY[0..2] OF LREAL := [0, 0, 0];
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="DesireDriveForce" Id="{df4a6ebd-9c21-4811-9cae-731702b3927f}">
+      <Declaration><![CDATA[METHOD PUBLIC DesireDriveForce : BOOL
+VAR_INPUT
+	fTipDes : ARRAY[0..2] OF LREAL;
+	motorAng: ARRAY[0..2] OF LREAL;
+	legIndex:INT;
+END_VAR
+VAR_OUTPUT
+	fDrvDes : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighAng : LREAL;
+	shankAng : LREAL;
+	xFTipdes : LREAL;
+	yFTipdes : LREAL;
+	zFTipDes: LREAL;
+	abdctAng: LREAL;
+	ySag: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*xFTipDes := fTipDes[0];
+yFTipDes := fTipDes[1];
+zFTipDes := fTipDes[2];
+
+abdctAng := motorAng[0];
+thighAng := motorAng[1];
+shankAng := motorAng[2];
+
+ySag := thighLength*SIN(thighAng) + shankLength*SIN(shankAng);
+
+fDrvDes[0] := (-SIN(abdctAng)*ySag+cos(abdctAng)*sagPlaneOffset)*yFTipDes + (COS(abdctAng)*ySag+sin(abdctAng)*sagPlaneOffset)*zFTipDes;
+fDrvDes[1] := -thighLength*SIN(thighAng)*xFTipDes + COS(abdctAng)*thighLength*COS(thighAng)*yFTipDes + SIN(abdctAng)*thighLength*COS(thighAng)*zFTipDes;
+fDrvDes[2] := -shankLength*SIN(shankAng)*xFTipDes + COS(abdctAng)*shankLength*COS(shankAng)*yFTipDes + SIN(abdctAng)*shankLength*COS(shankAng)*zFTipDes;*)
+IF legIndex=0 OR legIndex=5 THEN
+	gvl.legCtrl[legIndex].DesireDriveForce_1(fTipDes:=fTipDes , motorAng:=motorAng , fDrvDes=> fDrvDes);
+ELSE
+	gvl.legCtrl[legIndex].DesireDriveForce_2(fTipDes:=fTipDes , motorAng:=motorAng , fDrvDes=> fDrvDes);
+END_IF
+
+DesireDriveForce := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DesireDriveForce_1" Id="{ac2bba63-a912-4e6a-887f-fad90c686c7f}">
+      <Declaration><![CDATA[METHOD PUBLIC DesireDriveForce_1 : BOOL
+VAR_INPUT
+	fTipDes : ARRAY[0..2] OF LREAL;
+	motorAng: ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	fDrvDes : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighAng : LREAL;
+	shankAng : LREAL;
+	xFTipdes : LREAL;
+	yFTipdes : LREAL;
+	zFTipDes: LREAL;
+	abdctAng: LREAL;
+	ySag: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[xFTipDes := fTipDes[0];
+yFTipDes := fTipDes[1];
+zFTipDes := fTipDes[2];
+
+abdctAng := motorAng[0];
+thighAng := motorAng[1];
+shankAng := motorAng[2];
+
+ySag := thighLength*SIN(thighAng) + shankLength*SIN(shankAng);
+
+fDrvDes[0] := (-SIN(abdctAng)*ySag+cos(abdctAng)*sagPlaneOffset)*yFTipDes + (COS(abdctAng)*ySag+sin(abdctAng)*sagPlaneOffset)*zFTipDes;
+fDrvDes[1] := -thighLength*SIN(thighAng)*xFTipDes + COS(abdctAng)*thighLength*COS(thighAng)*yFTipDes + SIN(abdctAng)*thighLength*COS(thighAng)*zFTipDes;
+fDrvDes[2] := -shankLength*SIN(shankAng)*xFTipDes + COS(abdctAng)*shankLength*COS(shankAng)*yFTipDes + SIN(abdctAng)*shankLength*COS(shankAng)*zFTipDes;
+
+DesireDriveForce_1 := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DesireDriveForce_2" Id="{01583b0c-8da1-48d5-a716-63737000df7f}">
+      <Declaration><![CDATA[METHOD PUBLIC DesireDriveForce_2 : BOOL
+VAR_INPUT
+	fTipDes : ARRAY[0..2] OF LREAL;
+	motorAng: ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	fDrvDes : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighAng : LREAL;
+	shankAng : LREAL;
+	xFTipdes : LREAL;
+	yFTipdes : LREAL;
+	zFTipDes: LREAL;
+	abdctAng: LREAL;
+	ySag: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[xFTipDes := fTipDes[0];
+yFTipDes := fTipDes[1];
+zFTipDes := fTipDes[2];
+
+abdctAng := motorAng[0];
+thighAng := motorAng[1];
+shankAng := motorAng[2];
+
+ySag := thighLength*SIN(thighAng) + shankLength*SIN(shankAng+thighAng);
+
+fDrvDes[0] := (-SIN(abdctAng)*ySag+cos(abdctAng)*sagPlaneOffset)*yFTipDes + (COS(abdctAng)*ySag+sin(abdctAng)*sagPlaneOffset)*zFTipDes;
+fDrvDes[1] := -(thighLength*SIN(thighAng)+shankLength*SIN(shankAng+thighAng))*xFTipDes + COS(abdctAng)*(thighLength*COS(thighAng)+shankLength*COS(shankAng+thighAng))*yFTipDes + SIN(abdctAng)*(thighLength*COS(thighAng)+shankLength*COS(shankAng+thighAng))*zFTipDes;
+fDrvDes[2] := -shankLength*SIN(shankAng+thighAng)*xFTipDes + COS(abdctAng)*shankLength*COS(shankAng+thighAng)*yFTipDes + SIN(abdctAng)*shankLength*COS(shankAng+thighAng)*zFTipDes;
+
+DesireDriveForce_2 := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DownloadDriveCmds" Id="{c92dab16-dcd3-4de5-a5d8-5354acb9cce6}">
+      <Declaration><![CDATA[METHOD PUBLIC DownloadDriveCmds : BOOL
+VAR_INPUT
+	drive      : REFERENCE TO IntegratedDrive;
+	driveIndex : INT;
+	legIndex:UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// the mapping between the angle of kinematics model and the angle of physical motor angle
+(*motorAnglesOut[0]对应的是侧摆角，
+motorAnglesOut[1]对应的是大腿角度
+motorAnglesOut[2]对应的是小腿角度
+但是驱动器0号对应小腿，所以将驱动器0赋值motorAnglesOut[2],即motorAnglesOut[phy2absMapping[driveIndex]],其中
+phy2absMapping[0]=2
+*)
+IF legIndex=0 OR legIndex=5 THEN
+	drive.SetImpdTarget(targetPos := motorAnglesOut[phy2absMapping[driveIndex]] - axisAngleOffset[phy2absMapping[driveIndex]], 
+	                targetVel := motorAngVelOut[phy2absMapping[driveIndex]],
+					additionalFce := jointTorqueOut[phy2absMapping[driveIndex]]);
+ELSE
+	drive.SetImpdTarget(targetPos := motorAnglesOut[phy2absMapping[driveIndex]], 
+	                targetVel := motorAngVelOut[phy2absMapping[driveIndex]],
+					additionalFce := jointTorqueOut[phy2absMapping[driveIndex]]);
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ForwardKinetics" Id="{2a812ddb-d43e-4141-bde6-33fa4a9e6e09}">
+      <Declaration><![CDATA[METHOD PUBLIC ForwardKinetics : BOOL
+VAR_INPUT
+	motorAngles : ARRAY [0..2] OF LREAL;
+	legIndex:INT;
+END_VAR
+VAR_OUTPUT
+	tipPosition : ARRAY [0..2] OF LREAL;
+END_VAR
+VAR
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abductAng  : LREAL;
+	xSagPlane : LREAL;
+	ySagPlane : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*abductAng  := motorAngles[0];
+thighAng := motorAngles[1];
+shankAng := motorAngles[2];
+
+xSagPlane := thighLength * COS(thighAng) + shankLength * COS(shankAng);
+ySagPlane := thighLength * SIN(thighAng) + shankLength * SIN(shankAng);
+
+tipPosition[0] := xSagPlane;
+tipPosition[1] := COS(abductAng) * ySagPlane+SIN(abductAng) * sagPlaneOffset;
+tipPosition[2] := SIN(abductAng) * ySagPlane-COS(abductAng) * sagPlaneOffset;*)
+IF legIndex=0 OR legIndex=5 THEN
+	gvl.legCtrl[legIndex].ForwardKinetics_1(motorAngles:=motorAngles  , tipPosition=> tipPosition);
+ELSE
+	gvl.legCtrl[legIndex].ForwardKinetics_2(motorAngles:=motorAngles  , tipPosition=> tipPosition);
+END_IF
+
+ForwardKinetics := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ForwardKinetics_1" Id="{93ad6bd8-30e9-44a5-8394-7df3b775f70d}">
+      <Declaration><![CDATA[METHOD PUBLIC ForwardKinetics_1 : BOOL
+VAR_INPUT
+	motorAngles : ARRAY [0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	tipPosition : ARRAY [0..2] OF LREAL;
+END_VAR
+VAR
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abductAng  : LREAL;
+	xSagPlane : LREAL;
+	ySagPlane : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[abductAng  := motorAngles[0];
+thighAng := motorAngles[1];
+shankAng := motorAngles[2];
+
+xSagPlane := thighLength * COS(thighAng) + shankLength * COS(shankAng);
+ySagPlane := thighLength * SIN(thighAng) + shankLength * SIN(shankAng);
+
+tipPosition[0] := xSagPlane;
+tipPosition[1] := COS(abductAng) * ySagPlane+SIN(abductAng) * sagPlaneOffset;
+tipPosition[2] := SIN(abductAng) * ySagPlane-COS(abductAng) * sagPlaneOffset;
+
+ForwardKinetics_1 := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ForwardKinetics_2" Id="{143e9803-4f66-4819-9eb6-01b3d4cdab44}">
+      <Declaration><![CDATA[METHOD PUBLIC ForwardKinetics_2 : BOOL
+VAR_INPUT
+	motorAngles : ARRAY [0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	tipPosition : ARRAY [0..2] OF LREAL;
+END_VAR
+VAR
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abductAng  : LREAL;
+	xSagPlane : LREAL;
+	ySagPlane : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[abductAng  := motorAngles[0];
+thighAng := motorAngles[1];
+shankAng := motorAngles[2];
+
+xSagPlane := thighLength * COS(thighAng) + shankLength * COS(shankAng+thighAng);
+ySagPlane := thighLength * SIN(thighAng) + shankLength * SIN(shankAng+thighAng);
+
+tipPosition[0] := xSagPlane;
+tipPosition[1] := COS(abductAng) * ySagPlane+SIN(abductAng) * sagPlaneOffset;
+tipPosition[2] := SIN(abductAng) * ySagPlane-COS(abductAng) * sagPlaneOffset;
+
+ForwardKinetics_2 := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitParam" Id="{238d0b76-a284-4fdf-8b94-34eda7f11a3a}">
+      <Declaration><![CDATA[METHOD PUBLIC InitParam : BOOL
+VAR_INPUT
+	id            : UINT;
+	shankLengthIn : LREAL;
+	thighLengthIn : LREAL;
+	sagPlaneOffsetIn:lreal;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[legID       := id;
+shankLength := shankLengthIn;
+thighLength := thighLengthIn;
+sagPlaneOffset:=sagPlaneOffsetIn;
+
+InitParam := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InverseKinetics" Id="{c0ebcf17-9eb6-4ca8-8f1d-b27c6605a19d}">
+      <Declaration><![CDATA[METHOD PUBLIC InverseKinetics : BOOL
+VAR_INPUT
+	tipPosition : ARRAY [0..2] OF LREAL;
+	refPosLast  : ARRAY[0..2] OF LREAL;
+	legIndex:INT;
+END_VAR
+VAR_OUTPUT
+	motorAngles : ARRAY [0..2] OF LREAL;
+	isSingular  : BOOL;
+END_VAR
+VAR
+	legSagAng : LREAL;
+	legAbductAng : LREAL;
+	legLength : LREAL;
+	alpha     : LREAL;
+	beta      : LREAL;
+	x, y, z   : LREAL;
+	xSag, ySag: LREAL;
+	i: INT;
+		
+	motorAnglesAll:ARRAY[0..2,0..3] OF LREAL;
+	theta:ARRAY[0..1] OF LREAL;
+	phai:LREAL;
+	t:LREAL;
+	upper:ARRAY[0..2] OF LREAL:=[pi,2*pi,2*pi];
+	lower:ARRAY[0..2] OF LREAL:=[-pi,0,0];
+	j: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*x := tipPosition[0];
+y := tipPosition[1];
+z := tipPosition[2];
+isSingular := FALSE;
+
+phai:=atan2Fun(z,y);
+t:=sagPlaneOffset/SQRT(y*y+z*z);
+theta[0]:=phai+atan2Fun(t,SQRT(1-t*t));
+theta[1]:=phai+atan2Fun(t,-SQRT(1-t*t));
+FOR i:=0 TO 1 DO
+	xSag:=x;
+	ySag:=y*COS(theta[i])+z*SIN(theta[i]);
+	legLength:=SQRT(xSag*xSag+ySag*ySag);
+	legSagAng:=atan2Fun(ySag,xSag);
+	alpha := ACOS((thighLength * thighLength + legLength * legLength - shankLength * shankLength) / 2.0 / thighLength / legLength);
+	beta  := ACOS((thighLength * thighLength - legLength * legLength + shankLength * shankLength) / 2.0 / thighLength / shankLength);
+	
+	motorAnglesAll[0,0+2*i]:=theta[i];
+	motorAnglesAll[1,0+2*i]:=legSagAng - alpha;
+	motorAnglesAll[2,0+2*i]:= legSagAng - alpha + pi-beta;
+	
+	motorAnglesAll[0,1+2*i]:=theta[i];
+	motorAnglesAll[1,1+2*i]:=legSagAng +alpha;
+	motorAnglesAll[2,1+2*i]:= legSagAng + alpha - pi+beta;
+END_FOR
+FOR i:=0 TO 3 DO
+	FOR j:=0 TO 2 DO
+		motorAnglesAll[j,i]:=AngleCutFun(motorAnglesAll[j,i],upper[j],lower[j],2*pi);
+	END_FOR
+END_FOR
+
+IF ABS(motorAnglesAll[0,0]-refPosLast[0])<ABS(motorAnglesAll[0,2]-refPosLast[0]) THEN
+	IF ABS(motorAnglesAll[1,0]-refPosLast[1])<ABS(motorAnglesAll[1,1]-refPosLast[1]) THEN
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,0];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,1];
+		END_FOR			
+	END_IF
+ELSE
+	IF ABS(motorAnglesAll[1,2]-refPosLast[1])<ABS(motorAnglesAll[1,3]-refPosLast[1]) THEN
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,2];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,3];
+		END_FOR			
+	END_IF		
+END_IF*)
+IF legIndex=0 OR legIndex=5 THEN
+	gvl.legCtrl[legIndex].InverseKinetics_1(tipPosition:=tipPosition , refPosLast:=refPosLast , motorAngles=>motorAngles , isSingular=>isSingular );
+ELSE
+	gvl.legCtrl[legIndex].InverseKinetics_2(tipPosition:=tipPosition , refPosLast:=refPosLast , motorAngles=>motorAngles , isSingular=>isSingular );
+END_IF
+
+InverseKinetics := isSingular;
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InverseKinetics_1" Id="{afbbe877-89e5-4a77-b0e0-9fd54f22d143}">
+      <Declaration><![CDATA[METHOD PUBLIC InverseKinetics_1 : BOOL
+VAR_INPUT
+	tipPosition : ARRAY [0..2] OF LREAL;
+	refPosLast  : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	motorAngles : ARRAY [0..2] OF LREAL;
+	isSingular  : BOOL;
+END_VAR
+VAR
+	legSagAng : LREAL;
+	legAbductAng : LREAL;
+	legLength : LREAL;
+	alpha     : LREAL;
+	beta      : LREAL;
+	x, y, z   : LREAL;
+	xSag, ySag: LREAL;
+	i: INT;
+		
+	motorAnglesAll:ARRAY[0..2,0..3] OF LREAL;
+	theta:ARRAY[0..1] OF LREAL;
+	phai:LREAL;
+	t:LREAL;
+	upper:ARRAY[0..2] OF LREAL:=[pi,2*pi,2*pi];
+	lower:ARRAY[0..2] OF LREAL:=[-pi,0,0];
+	j: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[x := tipPosition[0];
+y := tipPosition[1];
+z := tipPosition[2];
+isSingular := FALSE;
+
+phai:=atan2Fun(z,y);
+t:=sagPlaneOffset/SQRT(y*y+z*z);
+theta[0]:=phai+atan2Fun(t,SQRT(1-t*t));
+theta[1]:=phai+atan2Fun(t,-SQRT(1-t*t));
+FOR i:=0 TO 1 DO
+	xSag:=x;
+	ySag:=y*COS(theta[i])+z*SIN(theta[i]);
+	legLength:=SQRT(xSag*xSag+ySag*ySag);
+	legSagAng:=atan2Fun(ySag,xSag);
+	alpha := ACOS((thighLength * thighLength + legLength * legLength - shankLength * shankLength) / 2.0 / thighLength / legLength);
+	beta  := ACOS((thighLength * thighLength - legLength * legLength + shankLength * shankLength) / 2.0 / thighLength / shankLength);
+	
+	motorAnglesAll[0,0+2*i]:=theta[i];
+	motorAnglesAll[1,0+2*i]:=legSagAng - alpha;
+	motorAnglesAll[2,0+2*i]:= legSagAng - alpha + pi-beta;
+	
+	motorAnglesAll[0,1+2*i]:=theta[i];
+	motorAnglesAll[1,1+2*i]:=legSagAng +alpha;
+	motorAnglesAll[2,1+2*i]:= legSagAng + alpha - pi+beta;
+END_FOR
+FOR i:=0 TO 3 DO
+	FOR j:=0 TO 2 DO
+		motorAnglesAll[j,i]:=AngleCutFun(motorAnglesAll[j,i],upper[j],lower[j],2*pi);
+	END_FOR
+END_FOR
+
+IF ABS(motorAnglesAll[0,0]-refPosLast[0])<ABS(motorAnglesAll[0,2]-refPosLast[0]) THEN
+	IF ABS(motorAnglesAll[1,0]-refPosLast[1])<ABS(motorAnglesAll[1,1]-refPosLast[1]) THEN
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,0];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,1];
+		END_FOR			
+	END_IF
+ELSE
+	IF ABS(motorAnglesAll[1,2]-refPosLast[1])<ABS(motorAnglesAll[1,3]-refPosLast[1]) THEN
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,2];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,3];
+		END_FOR			
+	END_IF		
+END_IF
+
+InverseKinetics_1 := isSingular;
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InverseKinetics_2" Id="{c5bdf0ff-1f94-4418-a7e0-06986165cac1}">
+      <Declaration><![CDATA[METHOD PUBLIC InverseKinetics_2 : BOOL
+VAR_INPUT
+	tipPosition : ARRAY [0..2] OF LREAL;
+	refPosLast  : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	motorAngles : ARRAY [0..2] OF LREAL;
+	isSingular  : BOOL;
+END_VAR
+VAR
+	legSagAng : LREAL;
+	legAbductAng : LREAL;
+	legLength : LREAL;
+	alpha     : LREAL;
+	beta      : LREAL;
+	x, y, z   : LREAL;
+	xSag, ySag: LREAL;
+	i: INT;
+		
+	motorAnglesAll:ARRAY[0..2,0..3] OF LREAL;
+	theta:ARRAY[0..1] OF LREAL;
+	phai:LREAL;
+	t:LREAL;
+	upper:ARRAY[0..2] OF LREAL:=[pi,2*pi,2*pi];
+	lower:ARRAY[0..2] OF LREAL:=[-pi,0,0];
+	j: INT;
+	refPosLastModel:ARRAY[0..2] OF LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[x := tipPosition[0];
+y := tipPosition[1];
+z := tipPosition[2];
+isSingular := FALSE;
+
+phai:=atan2Fun(z,y);
+t:=sagPlaneOffset/SQRT(y*y+z*z);
+theta[0]:=phai+atan2Fun(t,SQRT(1-t*t));
+theta[1]:=phai+atan2Fun(t,-SQRT(1-t*t));
+FOR i:=0 TO 1 DO
+	xSag:=x;
+	ySag:=y*COS(theta[i])+z*SIN(theta[i]);
+	legLength:=SQRT(xSag*xSag+ySag*ySag);
+	legSagAng:=atan2Fun(ySag,xSag);
+	alpha := ACOS((thighLength * thighLength + legLength * legLength - shankLength * shankLength) / 2.0 / thighLength / legLength);
+	beta  := ACOS((thighLength * thighLength - legLength * legLength + shankLength * shankLength) / 2.0 / thighLength / shankLength);
+	
+	motorAnglesAll[0,0+2*i]:=theta[i];
+	motorAnglesAll[1,0+2*i]:=legSagAng - alpha;
+	motorAnglesAll[2,0+2*i]:= legSagAng - alpha + pi-beta;
+	
+	motorAnglesAll[0,1+2*i]:=theta[i];
+	motorAnglesAll[1,1+2*i]:=legSagAng +alpha;
+	motorAnglesAll[2,1+2*i]:= legSagAng + alpha - pi+beta;
+END_FOR
+FOR i:=0 TO 3 DO
+	FOR j:=0 TO 2 DO
+		motorAnglesAll[j,i]:=AngleCutFun(motorAnglesAll[j,i],upper[j],lower[j],2*pi);
+	END_FOR
+END_FOR
+
+refPosLastModel[0]:=refPosLast[0];
+refPosLastModel[1]:=AngleCutFun(refPosLast[1],2*pi,0,2*pi);
+refPosLastModel[2]:=AngleCutFun(refPosLast[1]+refPosLast[2],2*pi,0,2*pi);
+
+
+IF ABS(motorAnglesAll[0,0]-refPosLastModel[0])<ABS(motorAnglesAll[0,2]-refPosLastModel[0]) THEN
+	IF Min3Value(ABS(motorAnglesAll[1,0]-refPosLastModel[1]),ABS(motorAnglesAll[1,0]+2*pi-refPosLastModel[1]),ABS(motorAnglesAll[1,0]-2*pi-refPosLastModel[1]))
+       <Min3Value(ABS(motorAnglesAll[1,1]-refPosLastModel[1]),ABS(motorAnglesAll[1,1]+2*pi-refPosLastModel[1]),ABS(motorAnglesAll[1,1]-2*pi-refPosLastModel[1])) THEN
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,0];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,1];
+		END_FOR			
+	END_IF
+ELSE
+	IF Min3Value(ABS(motorAnglesAll[1,2]-refPosLastModel[1]),ABS(motorAnglesAll[1,2]+2*pi-refPosLastModel[1]),ABS(motorAnglesAll[1,2]-2*pi-refPosLastModel[1]))
+       <Min3Value(ABS(motorAnglesAll[1,3]-refPosLastModel[1]),ABS(motorAnglesAll[1,3]+2*pi-refPosLastModel[1]),ABS(motorAnglesAll[1,3]-2*pi-refPosLastModel[1])) THEN
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,2];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,3];
+		END_FOR			
+	END_IF		
+END_IF
+
+motorAngles[1]:=MinDistanceValue(motorAngles[1],refPosLastModel[1]);
+motorAngles[2]:=MinDistanceValue(motorAngles[2],refPosLastModel[2]);
+
+motorAngles[2]:=MinDistanceValue(motorAngles[2]-motorAngles[1],refPosLast[2]);
+motorAngles[1]:=MinDistanceValue(motorAngles[1],refPosLast[1]);
+
+
+
+(*motorAngles[2]:=Min3Value(ABS(motorAngles[2]-refPosLastModel[2]),ABS(motorAngles[2]+2*pi-refPosLastModel[2]),ABS(motorAngles[2]-2*pi-refPosLastModel[2]))+refPosLastModel[2];
+
+motorAngles[2]:=Min3Value(motorAngles[2]-motorAngles[1]-refPosLast[2],motorAngles[2]-motorAngles[1]+2*pi-refPosLast[2],motorAngles[2]-motorAngles[1]-2*pi-refPosLast[2])+refPosLast[2];
+
+motorAngles[1]:=Min3Value(motorAngles[1]-refPosLast[1],motorAngles[1]+2*pi-refPosLast[1],motorAngles[1]-2*pi-refPosLast[1])+refPosLast[1];*)
+
+//motorAngles[2]:=motorAngles[2]-motorAngles[1];
+
+InverseKinetics_2 := isSingular;
+
+
+
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InversePosAndVel" Id="{dc0c8930-d2c5-4314-b2d1-38557371d7a9}">
+      <Declaration><![CDATA[METHOD PUBLIC InversePosAndVel : BOOL
+VAR_INPUT
+	tipPos : ARRAY[0..2] OF LREAL;
+	tipVel : ARRAY[0..2] OF LREAL;
+	refPosLast  : ARRAY[0..2] OF LREAL;
+	legIndex:INT;
+END_VAR
+VAR_OUTPUT
+	jntPos : ARRAY[0..2] OF LREAL;
+	jntVel : ARRAY[0..2] OF LREAL; 
+END_VAR
+VAR	
+	legSagAng : LREAL;
+	legAbductAng : LREAL;
+	legLength : LREAL;
+	alpha     : LREAL;
+	beta      : LREAL;
+	x, y, z   : LREAL;
+	xSag, ySag: LREAL;
+	i: INT;
+		
+	motorAnglesAll:ARRAY[0..2,0..3] OF LREAL;
+	theta:ARRAY[0..1] OF LREAL;
+	phai:LREAL;
+	t:LREAL;
+	upper:ARRAY[0..2] OF LREAL:=[pi,2*pi,2*pi];
+	lower:ARRAY[0..2] OF LREAL:=[-pi,0,0];
+	j: INT;
+	theta_a,theta_t,theta_s,csc:LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*x := tipPos[0];
+y := tipPos[1];
+z := tipPos[2];
+
+phai:=atan2Fun(z,y);
+t:=sagPlaneOffset/SQRT(y*y+z*z);
+theta[0]:=phai+atan2Fun(t,SQRT(1-t*t));
+theta[1]:=phai+atan2Fun(t,-SQRT(1-t*t));
+FOR i:=0 TO 1 DO
+	xSag:=x;
+	ySag:=y*COS(theta[i])+z*SIN(theta[i]);
+	legLength:=SQRT(xSag*xSag+ySag*ySag);
+	legSagAng:=atan2Fun(ySag,xSag);
+	alpha := ACOS((thighLength * thighLength + legLength * legLength - shankLength * shankLength) / 2.0 / thighLength / legLength);
+	beta  := ACOS((thighLength * thighLength - legLength * legLength + shankLength * shankLength) / 2.0 / thighLength / shankLength);
+	
+	motorAnglesAll[0,0+2*i]:=theta[i];
+	motorAnglesAll[1,0+2*i]:=legSagAng - alpha;
+	motorAnglesAll[2,0+2*i]:= legSagAng - alpha + pi-beta;
+	
+	motorAnglesAll[0,1+2*i]:=theta[i];
+	motorAnglesAll[1,1+2*i]:=legSagAng +alpha;
+	motorAnglesAll[2,1+2*i]:= legSagAng + alpha - pi+beta;
+END_FOR
+FOR i:=0 TO 3 DO
+	FOR j:=0 TO 2 DO
+		motorAnglesAll[j,i]:=AngleCutFun(motorAnglesAll[j,i],upper[j],lower[j],2*pi);
+	END_FOR
+END_FOR
+
+IF ABS(motorAnglesAll[0,0]-refPosLast[0])<ABS(motorAnglesAll[0,2]-refPosLast[0]) THEN
+	IF ABS(motorAnglesAll[1,0]-refPosLast[1])<ABS(motorAnglesAll[1,1]-refPosLast[1]) THEN
+		FOR j:=0 TO 2 DO
+			jntPos[j]:=motorAnglesAll[j,0];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			jntPos[j]:=motorAnglesAll[j,1];
+		END_FOR			
+	END_IF
+ELSE
+	IF ABS(motorAnglesAll[1,2]-refPosLast[1])<ABS(motorAnglesAll[1,3]-refPosLast[1]) THEN
+		FOR j:=0 TO 2 DO
+			jntPos[j]:=motorAnglesAll[j,2];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			jntPos[j]:=motorAnglesAll[j,3];
+		END_FOR			
+	END_IF		
+END_IF
+theta_a:=jntPos[0];
+theta_t:=jntPos[1];
+theta_s:=jntPos[2];
+csc:=1/SIN(theta_s-theta_t);
+ySag:=thighLength*SIN(theta_t)+shankLength*SIN(theta_s);
+
+jntVel[0]:=-SIN(theta_a)/ySag*tipVel[1]+COS(theta_a)/ySag*tipVel[2];
+jntVel[1]:=COS(theta_s)*csc/thighLength*tipVel[0]+SIN(theta_s)*(sagPlaneOffset*SIN(theta_a)+ySag*COS(theta_a))*csc/(thighLength*ySag)*tipVel[1]-SIN(theta_s)*(sagPlaneOffset*COS(theta_a)-ySag*SIN(theta_a))*csc/(thighLength*ySag)*tipVel[2];
+jntVel[2]:=-COS(theta_t)*csc/shankLength*tipVel[0]-SIN(theta_t)*(sagPlaneOffset*SIN(theta_a)+ySag*COS(theta_a))*csc/(shankLength*ySag)*tipVel[1]+SIN(theta_t)*(sagPlaneOffset*COS(theta_a)-ySag*SIN(theta_a))*csc/(shankLength*ySag)*tipVel[2];     
+*)
+IF legIndex=0 OR legIndex=5 THEN
+	gvl.legCtrl[legIndex].InversePosAndVel_1(tipPos:=tipPos  , tipVel:= tipVel, refPosLast:=refPosLast , jntPos=> jntPos, jntVel=>jntVel );
+ELSE
+	gvl.legCtrl[legIndex].InversePosAndVel_2(tipPos:=tipPos  , tipVel:= tipVel, refPosLast:=refPosLast , jntPos=> jntPos, jntVel=>jntVel );
+END_IF
+
+
+
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InversePosAndVel_1" Id="{338b7f9c-d3d4-42f4-868c-9018111f8d26}">
+      <Declaration><![CDATA[METHOD PUBLIC InversePosAndVel_1 : BOOL
+VAR_INPUT
+	tipPos : ARRAY[0..2] OF LREAL;
+	tipVel : ARRAY[0..2] OF LREAL;
+	refPosLast  : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	jntPos : ARRAY[0..2] OF LREAL;
+	jntVel : ARRAY[0..2] OF LREAL; 
+END_VAR
+VAR	
+	legSagAng : LREAL;
+	legAbductAng : LREAL;
+	legLength : LREAL;
+	alpha     : LREAL;
+	beta      : LREAL;
+	x, y, z   : LREAL;
+	xSag, ySag: LREAL;
+	i: INT;
+		
+	motorAnglesAll:ARRAY[0..2,0..3] OF LREAL;
+	theta:ARRAY[0..1] OF LREAL;
+	phai:LREAL;
+	t:LREAL;
+	upper:ARRAY[0..2] OF LREAL:=[pi,2*pi,2*pi];
+	lower:ARRAY[0..2] OF LREAL:=[-pi,0,0];
+	j: INT;
+	theta_a,theta_t,theta_s,csc:LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[x := tipPos[0];
+y := tipPos[1];
+z := tipPos[2];
+
+phai:=atan2Fun(z,y);
+t:=sagPlaneOffset/SQRT(y*y+z*z);
+theta[0]:=phai+atan2Fun(t,SQRT(1-t*t));
+theta[1]:=phai+atan2Fun(t,-SQRT(1-t*t));
+FOR i:=0 TO 1 DO
+	xSag:=x;
+	ySag:=y*COS(theta[i])+z*SIN(theta[i]);
+	legLength:=SQRT(xSag*xSag+ySag*ySag);
+	legSagAng:=atan2Fun(ySag,xSag);
+	alpha := ACOS((thighLength * thighLength + legLength * legLength - shankLength * shankLength) / 2.0 / thighLength / legLength);
+	beta  := ACOS((thighLength * thighLength - legLength * legLength + shankLength * shankLength) / 2.0 / thighLength / shankLength);
+	
+	motorAnglesAll[0,0+2*i]:=theta[i];
+	motorAnglesAll[1,0+2*i]:=legSagAng - alpha;
+	motorAnglesAll[2,0+2*i]:= legSagAng - alpha + pi-beta;
+	
+	motorAnglesAll[0,1+2*i]:=theta[i];
+	motorAnglesAll[1,1+2*i]:=legSagAng +alpha;
+	motorAnglesAll[2,1+2*i]:= legSagAng + alpha - pi+beta;
+END_FOR
+FOR i:=0 TO 3 DO
+	FOR j:=0 TO 2 DO
+		motorAnglesAll[j,i]:=AngleCutFun(motorAnglesAll[j,i],upper[j],lower[j],2*pi);
+	END_FOR
+END_FOR
+
+IF ABS(motorAnglesAll[0,0]-refPosLast[0])<ABS(motorAnglesAll[0,2]-refPosLast[0]) THEN
+	IF ABS(motorAnglesAll[1,0]-refPosLast[1])<ABS(motorAnglesAll[1,1]-refPosLast[1]) THEN
+		FOR j:=0 TO 2 DO
+			jntPos[j]:=motorAnglesAll[j,0];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			jntPos[j]:=motorAnglesAll[j,1];
+		END_FOR			
+	END_IF
+ELSE
+	IF ABS(motorAnglesAll[1,2]-refPosLast[1])<ABS(motorAnglesAll[1,3]-refPosLast[1]) THEN
+		FOR j:=0 TO 2 DO
+			jntPos[j]:=motorAnglesAll[j,2];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			jntPos[j]:=motorAnglesAll[j,3];
+		END_FOR			
+	END_IF		
+END_IF
+theta_a:=jntPos[0];
+theta_t:=jntPos[1];
+theta_s:=jntPos[2];
+csc:=1/SIN(theta_s-theta_t);
+ySag:=thighLength*SIN(theta_t)+shankLength*SIN(theta_s);
+
+jntVel[0]:=-SIN(theta_a)/ySag*tipVel[1]+COS(theta_a)/ySag*tipVel[2];
+jntVel[1]:=COS(theta_s)*csc/thighLength*tipVel[0]+SIN(theta_s)*(sagPlaneOffset*SIN(theta_a)+ySag*COS(theta_a))*csc/(thighLength*ySag)*tipVel[1]-SIN(theta_s)*(sagPlaneOffset*COS(theta_a)-ySag*SIN(theta_a))*csc/(thighLength*ySag)*tipVel[2];
+jntVel[2]:=-COS(theta_t)*csc/shankLength*tipVel[0]-SIN(theta_t)*(sagPlaneOffset*SIN(theta_a)+ySag*COS(theta_a))*csc/(shankLength*ySag)*tipVel[1]+SIN(theta_t)*(sagPlaneOffset*COS(theta_a)-ySag*SIN(theta_a))*csc/(shankLength*ySag)*tipVel[2];     
+
+
+
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InversePosAndVel_2" Id="{d8423c50-1599-4e25-a3d7-eebfeb2afdf2}">
+      <Declaration><![CDATA[METHOD PUBLIC InversePosAndVel_2 : BOOL
+VAR_INPUT
+	tipPos : ARRAY[0..2] OF LREAL;
+	tipVel : ARRAY[0..2] OF LREAL;
+	refPosLast  : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	jntPos : ARRAY[0..2] OF LREAL;
+	jntVel : ARRAY[0..2] OF LREAL; 
+END_VAR
+VAR	
+	legSagAng : LREAL;
+	legAbductAng : LREAL;
+	legLength : LREAL;
+	alpha     : LREAL;
+	beta      : LREAL;
+	x, y, z   : LREAL;
+	xSag, ySag: LREAL;
+	i: INT;
+		
+	motorAnglesAll:ARRAY[0..2,0..3] OF LREAL;
+	theta:ARRAY[0..1] OF LREAL;
+	phai:LREAL;
+	t:LREAL;
+	upper:ARRAY[0..2] OF LREAL:=[pi,2*pi,2*pi];
+	lower:ARRAY[0..2] OF LREAL:=[-pi,0,0];
+	j: INT;
+	theta_a,theta_t,theta_s,csc:LREAL;
+	refPosLastModel:ARRAY[0..2] OF LREAL;
+	motorAngles : ARRAY [0..2] OF LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[x := tipPos[0];
+y := tipPos[1];
+z := tipPos[2];
+
+phai:=atan2Fun(z,y);
+t:=sagPlaneOffset/SQRT(y*y+z*z);
+theta[0]:=phai+atan2Fun(t,SQRT(1-t*t));
+theta[1]:=phai+atan2Fun(t,-SQRT(1-t*t));
+FOR i:=0 TO 1 DO
+	xSag:=x;
+	ySag:=y*COS(theta[i])+z*SIN(theta[i]);
+	legLength:=SQRT(xSag*xSag+ySag*ySag);
+	legSagAng:=atan2Fun(ySag,xSag);
+	alpha := ACOS((thighLength * thighLength + legLength * legLength - shankLength * shankLength) / 2.0 / thighLength / legLength);
+	beta  := ACOS((thighLength * thighLength - legLength * legLength + shankLength * shankLength) / 2.0 / thighLength / shankLength);
+	
+	motorAnglesAll[0,0+2*i]:=theta[i];
+	motorAnglesAll[1,0+2*i]:=legSagAng - alpha;
+	motorAnglesAll[2,0+2*i]:= legSagAng - alpha + pi-beta;
+	
+	motorAnglesAll[0,1+2*i]:=theta[i];
+	motorAnglesAll[1,1+2*i]:=legSagAng +alpha;
+	motorAnglesAll[2,1+2*i]:= legSagAng + alpha - pi+beta;
+END_FOR
+FOR i:=0 TO 3 DO
+	FOR j:=0 TO 2 DO
+		motorAnglesAll[j,i]:=AngleCutFun(motorAnglesAll[j,i],upper[j],lower[j],2*pi);
+	END_FOR
+END_FOR
+
+refPosLastModel[0]:=refPosLast[0];
+refPosLastModel[1]:=AngleCutFun(refPosLast[1],2*pi,0,2*pi);
+refPosLastModel[2]:=AngleCutFun(refPosLast[1]+refPosLast[2],2*pi,0,2*pi);
+
+IF ABS(motorAnglesAll[0,0]-refPosLastModel[0])<ABS(motorAnglesAll[0,2]-refPosLastModel[0]) THEN
+	IF Min3Value(ABS(motorAnglesAll[1,0]-refPosLastModel[1]),ABS(motorAnglesAll[1,0]+2*pi-refPosLastModel[1]),ABS(motorAnglesAll[1,0]-2*pi-refPosLastModel[1]))
+       <Min3Value(ABS(motorAnglesAll[1,1]-refPosLastModel[1]),ABS(motorAnglesAll[1,1]+2*pi-refPosLastModel[1]),ABS(motorAnglesAll[1,1]-2*pi-refPosLastModel[1])) THEN
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,0];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,1];
+		END_FOR			
+	END_IF
+ELSE
+	IF Min3Value(ABS(motorAnglesAll[1,2]-refPosLastModel[1]),ABS(motorAnglesAll[1,2]+2*pi-refPosLastModel[1]),ABS(motorAnglesAll[1,2]-2*pi-refPosLastModel[1]))
+       <Min3Value(ABS(motorAnglesAll[1,3]-refPosLastModel[1]),ABS(motorAnglesAll[1,3]+2*pi-refPosLastModel[1]),ABS(motorAnglesAll[1,3]-2*pi-refPosLastModel[1])) THEN
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,2];
+		END_FOR
+	ELSE
+		FOR j:=0 TO 2 DO
+			motorAngles[j]:=motorAnglesAll[j,3];
+		END_FOR			
+	END_IF		
+END_IF
+
+
+
+theta_a:=motorAngles[0];
+theta_t:=motorAngles[1];
+theta_s:=motorAngles[2];
+csc:=1/SIN(theta_s-theta_t);
+ySag:=thighLength*SIN(theta_t)+shankLength*SIN(theta_s);
+
+jntVel[0]:=-SIN(theta_a)/ySag*tipVel[1]+COS(theta_a)/ySag*tipVel[2];
+jntVel[1]:=COS(theta_s)*csc/thighLength*tipVel[0]+SIN(theta_s)*(sagPlaneOffset*SIN(theta_a)+ySag*COS(theta_a))*csc/(thighLength*ySag)*tipVel[1]-SIN(theta_s)*(sagPlaneOffset*COS(theta_a)-ySag*SIN(theta_a))*csc/(thighLength*ySag)*tipVel[2];
+jntVel[2]:=-COS(theta_t)*csc/shankLength*tipVel[0]-SIN(theta_t)*(sagPlaneOffset*SIN(theta_a)+ySag*COS(theta_a))*csc/(shankLength*ySag)*tipVel[1]+SIN(theta_t)*(sagPlaneOffset*COS(theta_a)-ySag*SIN(theta_a))*csc/(shankLength*ySag)*tipVel[2];     
+
+motorAngles[1]:=MinDistanceValue(motorAngles[1],refPosLastModel[1]);
+motorAngles[2]:=MinDistanceValue(motorAngles[2],refPosLastModel[2]);
+
+motorAngles[2]:=MinDistanceValue(motorAngles[2]-motorAngles[1],refPosLast[2]);
+motorAngles[1]:=MinDistanceValue(motorAngles[1],refPosLast[1]);
+
+jntPos[0]:=motorAngles[0];
+jntPos[1]:=motorAngles[1];
+jntPos[2]:=motorAngles[2];
+
+jntVel[2]:=jntVel[2]- jntVel[1];
+
+
+
+
+
+
+
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetReference" Id="{7b52ace0-daeb-47d9-8c72-5f24b3916630}">
+      <Declaration><![CDATA[METHOD PUBLIC SetReference : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	j: INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR j := 0 TO 2 DO
+	motorAnglesOut[j] := gvl.jntRefPos[legId, j];
+	motorAngVelOut[j] := gvl.jntRefVel[legId, j];
+	jointTorqueOut[j] := gvl.jntRefFce[legId, j];
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TipForce" Id="{c9dfc876-14c2-47c7-bbfb-89314a88240c}">
+      <Declaration><![CDATA[METHOD PUBLIC TipForce : BOOL
+VAR_INPUT
+	motorTrq : ARRAY[0..2] OF LREAL;
+	motorAng : ARRAY[0..2] OF LREAL;
+	legIndex:INT;
+END_VAR
+VAR_OUTPUT
+	tipFce : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighTrq : LREAL;
+	shankTrq : LREAL;
+	abdctTrq : LREAL;
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abdctAng : LREAL;
+	
+	ySag     : LREAL;
+	csc      : LREAL;
+END_VAR
+
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*abdctTrq := motorTrq[0];
+thighTrq := motorTrq[1];
+shankTrq := motorTrq[2];
+
+abdctAng := motorAng[0];
+thighAng := motorAng[1];
+shankAng := motorAng[2];
+
+ySag := thighLength*SIN(thighAng) + shankLength*SIN(shankAng);
+csc := (1/SIN(shankAng-thighAng));
+
+tipFce[0] :=  csc / thighLength * COS(shankAng) * thighTrq - csc / shankLength * COS(thighAng) * shankTrq;
+tipFce[1]:=  -SIN(abdctAng)/ySag * abdctTrq + SIN(shankAng)*(sagPlaneOffset*SIN(abdctAng)+ySag*COS(abdctAng))*csc/(thighLength*ySag)*thighTrq - SIN(thighAng)*(sagPlaneOffset*SIN(abdctAng)+ySag*COS(abdctAng))*csc/(shankLength*ySag)* shankTrq;
+tipFce[2]:=   COS(abdctAng)/ySag * abdctTrq - SIN(shankAng)*(sagPlaneOffset*COS(abdctAng)-ySag*SIN(abdctAng))*csc/(thighLength*ySag) * thighTrq + SIN(thighAng)*(sagPlaneOffset*COS(abdctAng)-ySag*SIN(abdctAng))*csc/(shankLength*ySag) * shankTrq;
+*)
+IF legIndex=0 OR legIndex=5 THEN
+	gvl.legCtrl[legIndex].TipForce_1(motorTrq:=motorTrq  , motorAng:=motorAng  , tipFce=>tipFce );
+ELSE
+	gvl.legCtrl[legIndex].TipForce_2(motorTrq:=motorTrq  , motorAng:=motorAng  , tipFce=>tipFce );
+END_IF
+
+TipForce := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TipForce_1" Id="{70c12939-58e5-44a4-9f31-7553735b5388}">
+      <Declaration><![CDATA[METHOD PUBLIC TipForce_1 : BOOL
+VAR_INPUT
+	motorTrq : ARRAY[0..2] OF LREAL;
+	motorAng : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	tipFce : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighTrq : LREAL;
+	shankTrq : LREAL;
+	abdctTrq : LREAL;
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abdctAng : LREAL;
+	
+	ySag     : LREAL;
+	csc      : LREAL;
+END_VAR
+
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[abdctTrq := motorTrq[0];
+thighTrq := motorTrq[1];
+shankTrq := motorTrq[2];
+
+abdctAng := motorAng[0];
+thighAng := motorAng[1];
+shankAng := motorAng[2];
+
+ySag := thighLength*SIN(thighAng) + shankLength*SIN(shankAng);
+csc := (1/SIN(shankAng-thighAng));
+
+tipFce[0] :=  csc / thighLength * COS(shankAng) * thighTrq - csc / shankLength * COS(thighAng) * shankTrq;
+tipFce[1]:=  -SIN(abdctAng)/ySag * abdctTrq + SIN(shankAng)*(sagPlaneOffset*SIN(abdctAng)+ySag*COS(abdctAng))*csc/(thighLength*ySag)*thighTrq - SIN(thighAng)*(sagPlaneOffset*SIN(abdctAng)+ySag*COS(abdctAng))*csc/(shankLength*ySag)* shankTrq;
+tipFce[2]:=   COS(abdctAng)/ySag * abdctTrq - SIN(shankAng)*(sagPlaneOffset*COS(abdctAng)-ySag*SIN(abdctAng))*csc/(thighLength*ySag) * thighTrq + SIN(thighAng)*(sagPlaneOffset*COS(abdctAng)-ySag*SIN(abdctAng))*csc/(shankLength*ySag) * shankTrq;
+
+TipForce_1 := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TipForce_2" Id="{1f671554-63af-42ad-a4b2-f3d7e0ed94a1}">
+      <Declaration><![CDATA[METHOD PUBLIC TipForce_2 : BOOL
+VAR_INPUT
+	motorTrq : ARRAY[0..2] OF LREAL;
+	motorAng : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	tipFce : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighTrq : LREAL;
+	shankTrq : LREAL;
+	abdctTrq : LREAL;
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abdctAng : LREAL;
+	
+	ySag     : LREAL;
+	csc      : LREAL;
+END_VAR
+
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[abdctTrq := motorTrq[0];
+thighTrq := motorTrq[1];
+shankTrq := motorTrq[2];
+
+abdctAng := motorAng[0];
+thighAng := motorAng[1];
+shankAng := motorAng[2];
+
+ySag := thighLength*SIN(thighAng) + shankLength*SIN(shankAng+thighAng);
+csc := 1/SIN(shankAng);
+
+tipFce[0] :=  csc / thighLength * COS(shankAng+thighAng) * thighTrq - csc / shankLength * COS(thighAng) * shankTrq- csc / thighLength * COS(thighAng+shankAng) * shankTrq;
+tipFce[1]:=  -SIN(abdctAng)/ySag * abdctTrq + SIN(shankAng+thighAng)*(sagPlaneOffset*SIN(abdctAng)+ySag*COS(abdctAng))*csc/(thighLength*ySag)*thighTrq - (sagPlaneOffset*SIN(abdctAng)+ySag*COS(abdctAng))*csc*(SIN(thighAng)/(shankLength*ySag)+SIN(thighAng+shankAng)/(thighLength*ySag))* shankTrq;
+tipFce[2]:=   COS(abdctAng)/ySag * abdctTrq - SIN(shankAng+thighAng)*(sagPlaneOffset*COS(abdctAng)-ySag*SIN(abdctAng))*csc/(thighLength*ySag) * thighTrq + (sagPlaneOffset*COS(abdctAng)-ySag*SIN(abdctAng))*csc*(SIN(thighAng)/(shankLength*ySag)+SIN(thighAng+shankAng)/(thighLength*ySag)) * shankTrq;
+
+TipForce_2 := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TipVelocity" Id="{cad5981c-a2f4-4ee5-b0ad-d555d69ef08e}">
+      <Declaration><![CDATA[METHOD PUBLIC TipVelocity : BOOL
+VAR_INPUT
+	motorVel : ARRAY[0..2] OF LREAL;
+	motorAng : ARRAY[0..2] OF LREAL;
+	legIndex:INT;
+END_VAR
+VAR_OUTPUT
+	tipVel : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighVel : LREAL;
+	shankVel : LREAL;
+	abductVel: LREAL;
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abductAng: LREAL;
+	
+	ySag     : LREAL;
+	ySagVel  : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*abductVel := motorVel[0];
+thighVel  := motorVel[1];
+shankVel  := motorVel[2];
+
+abductAng := motorAng[0];
+thighAng  := motorAng[1];
+shankAng  := motorAng[2];
+
+ySag      := thighLength*SIN(thighAng) + shankLength*SIN(shankAng);
+ySagVel   := thighLength * COS(thighAng) * thighVel + shankLength * COS(shankAng) * shankVel;
+
+tipVel[0] := -thighLength * SIN(thighAng) * thighVel - shankLength * SIN(shankAng) * shankVel;
+tipVel[1] :=  COS(abductAng)*ySagVel - SIN(abductAng) * ySag * abductVel+COS(abductAng)*sagPlaneOffset*abductVel;
+tipVel[2] :=  SIN(abductAng)*ySagVel + COS(abductAng) * ySag * abductVel+SIN(abductAng)*sagPlaneOffset*abductVel;*)
+IF legIndex=0 OR legIndex=5 THEN
+	gvl.legCtrl[legIndex].TipVelocity_1(motorVel:= motorVel, motorAng:=motorAng  , tipVel=> tipVel);
+ELSE
+	gvl.legCtrl[legIndex].TipVelocity_2(motorVel:= motorVel, motorAng:=motorAng  , tipVel=> tipVel);
+END_IF
+
+TipVelocity := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TipVelocity_1" Id="{0a2a15b2-8db4-483b-8f7c-9d6e60a89a58}">
+      <Declaration><![CDATA[METHOD PUBLIC TipVelocity_1 : BOOL
+VAR_INPUT
+	motorVel : ARRAY[0..2] OF LREAL;
+	motorAng : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	tipVel : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighVel : LREAL;
+	shankVel : LREAL;
+	abductVel: LREAL;
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abductAng: LREAL;
+	
+	ySag     : LREAL;
+	ySagVel  : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[abductVel := motorVel[0];
+thighVel  := motorVel[1];
+shankVel  := motorVel[2];
+
+abductAng := motorAng[0];
+thighAng  := motorAng[1];
+shankAng  := motorAng[2];
+
+ySag      := thighLength*SIN(thighAng) + shankLength*SIN(shankAng);
+ySagVel   := thighLength * COS(thighAng) * thighVel + shankLength * COS(shankAng) * shankVel;
+
+tipVel[0] := -thighLength * SIN(thighAng) * thighVel - shankLength * SIN(shankAng) * shankVel;
+tipVel[1] :=  COS(abductAng)*ySagVel - SIN(abductAng) * ySag * abductVel+COS(abductAng)*sagPlaneOffset*abductVel;
+tipVel[2] :=  SIN(abductAng)*ySagVel + COS(abductAng) * ySag * abductVel+sin(abductAng)*sagPlaneOffset*abductVel;
+
+TipVelocity_1 := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TipVelocity_2" Id="{c1761f83-db98-4dd0-9be1-cae4f0c88285}">
+      <Declaration><![CDATA[METHOD PUBLIC TipVelocity_2 : BOOL
+VAR_INPUT
+	motorVel : ARRAY[0..2] OF LREAL;
+	motorAng : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR_OUTPUT
+	tipVel : ARRAY[0..2] OF LREAL;
+END_VAR
+VAR
+	thighVel : LREAL;
+	shankVel : LREAL;
+	abductVel: LREAL;
+	thighAng : LREAL;
+	shankAng : LREAL;
+	abductAng: LREAL;
+	
+	ySag     : LREAL;
+	ySagVel  : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[abductVel := motorVel[0];
+thighVel  := motorVel[1];
+shankVel  := motorVel[2];
+
+abductAng := motorAng[0];
+thighAng  := motorAng[1];
+shankAng  := motorAng[2];
+
+ySag      := thighLength*SIN(thighAng) + shankLength*SIN(shankAng+thighAng);
+ySagVel   := (thighLength * COS(thighAng)+shankLength*COS(shankAng+thighAng)) * thighVel + shankLength * COS(shankAng+thighAng) * shankVel;
+
+tipVel[0] := -(thighLength * SIN(thighAng)+shankLength*SIN(shankAng+thighAng)) * thighVel - shankLength * SIN(shankAng+thighAng) * shankVel;
+tipVel[1] :=  COS(abductAng)*ySagVel - SIN(abductAng) * ySag * abductVel+COS(abductAng)*sagPlaneOffset*abductVel;
+tipVel[2] :=  SIN(abductAng)*ySagVel + COS(abductAng) * ySag * abductVel+sin(abductAng)*sagPlaneOffset*abductVel;
+
+TipVelocity_2 := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateDriveFeedbacks" Id="{0dde030d-e347-4d58-b406-f0d412d3784b}">
+      <Declaration><![CDATA[METHOD PUBLIC UpdateDriveFeedbacks : BOOL
+VAR_INPUT
+	drive      : REFERENCE TO IntegratedDrive;
+	//drive_second      : REFERENCE TO IntegratedDrive;
+	driveIndex : UINT;//0->shank,1->thigh,2->side
+	legIndex:INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// the mapping between the angle of kinematics model and the angle of physical motor angle
+//0号驱动器对应小腿，1号对应大腿，2号对应侧摆
+(*motorAnglesIn[phy2absMapping[driveIndex]] := drive.motorAngle + axisAngleOffset[phy2absMapping[driveIndex]];//当前实际位置，运动学输入
+motorAngVelIn[phy2absMapping[driveIndex]] := drive.motorAngVel;
+jointTorqueIn[phy2absMapping[driveIndex]] := drive.trqCalibrated;
+motorRefAnglesIn[phy2absMapping[driveIndex]] := drive.tgtAngle + axisAngleOffset[phy2absMapping[driveIndex]];//当前参考角度，运动学输入*)
+
+IF legIndex=0 OR legIndex=5 THEN
+	motorAnglesIn[phy2absMapping[driveIndex]] := drive.motorAngle + axisAngleOffset[phy2absMapping[driveIndex]];//当前实际位置，运动学输入
+	motorAngVelIn[phy2absMapping[driveIndex]] := drive.motorAngVel;
+	jointTorqueIn[phy2absMapping[driveIndex]] := drive.trqCalibrated;
+	motorRefAnglesIn[phy2absMapping[driveIndex]] := drive.tgtAngle + axisAngleOffset[phy2absMapping[driveIndex]];//当前参考角度，运动学输入
+ELSE
+	motorAnglesIn[phy2absMapping[driveIndex]] := drive.motorAngle ;//当前实际位置，运动学输入
+	motorAngVelIn[phy2absMapping[driveIndex]] := drive.motorAngVel;
+	jointTorqueIn[phy2absMapping[driveIndex]] := drive.trqCalibrated;
+	motorRefAnglesIn[phy2absMapping[driveIndex]] := drive.tgtAngle ;//当前参考角度，运动学输入
+	
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="LegController">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.DesireDriveForce">
+      <LineId Id="21" Count="12" />
+      <LineId Id="53" Count="0" />
+      <LineId Id="56" Count="0" />
+      <LineId Id="54" Count="0" />
+      <LineId Id="57" Count="0" />
+      <LineId Id="55" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.DesireDriveForce_1">
+      <LineId Id="21" Count="13" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.DesireDriveForce_2">
+      <LineId Id="21" Count="13" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.DownloadDriveCmds">
+      <LineId Id="8" Count="0" />
+      <LineId Id="25" Count="4" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="41" Count="1" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="37" Count="0" />
+      <LineId Id="60" Count="1" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="38" Count="0" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="13" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.ForwardKinetics">
+      <LineId Id="36" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="39" Count="2" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="17" Count="3" />
+      <LineId Id="58" Count="3" />
+      <LineId Id="57" Count="0" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.ForwardKinetics_1">
+      <LineId Id="36" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="39" Count="2" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="17" Count="4" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.ForwardKinetics_2">
+      <LineId Id="36" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="39" Count="2" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="17" Count="4" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.InitParam">
+      <LineId Id="17" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.InverseKinetics">
+      <LineId Id="69" Count="1" />
+      <LineId Id="90" Count="0" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="147" Count="1" />
+      <LineId Id="151" Count="2" />
+      <LineId Id="149" Count="0" />
+      <LineId Id="154" Count="0" />
+      <LineId Id="162" Count="2" />
+      <LineId Id="166" Count="1" />
+      <LineId Id="165" Count="0" />
+      <LineId Id="168" Count="3" />
+      <LineId Id="173" Count="1" />
+      <LineId Id="172" Count="0" />
+      <LineId Id="155" Count="0" />
+      <LineId Id="150" Count="0" />
+      <LineId Id="177" Count="0" />
+      <LineId Id="179" Count="1" />
+      <LineId Id="178" Count="0" />
+      <LineId Id="183" Count="0" />
+      <LineId Id="182" Count="0" />
+      <LineId Id="184" Count="0" />
+      <LineId Id="186" Count="0" />
+      <LineId Id="188" Count="2" />
+      <LineId Id="192" Count="1" />
+      <LineId Id="191" Count="0" />
+      <LineId Id="187" Count="0" />
+      <LineId Id="194" Count="0" />
+      <LineId Id="196" Count="7" />
+      <LineId Id="195" Count="0" />
+      <LineId Id="185" Count="0" />
+      <LineId Id="235" Count="3" />
+      <LineId Id="234" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="205" Count="1" />
+      <LineId Id="204" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.InverseKinetics_1">
+      <LineId Id="69" Count="1" />
+      <LineId Id="90" Count="0" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="147" Count="1" />
+      <LineId Id="151" Count="2" />
+      <LineId Id="149" Count="0" />
+      <LineId Id="154" Count="0" />
+      <LineId Id="162" Count="2" />
+      <LineId Id="166" Count="1" />
+      <LineId Id="165" Count="0" />
+      <LineId Id="168" Count="3" />
+      <LineId Id="173" Count="1" />
+      <LineId Id="172" Count="0" />
+      <LineId Id="155" Count="0" />
+      <LineId Id="150" Count="0" />
+      <LineId Id="177" Count="0" />
+      <LineId Id="179" Count="1" />
+      <LineId Id="178" Count="0" />
+      <LineId Id="183" Count="0" />
+      <LineId Id="182" Count="0" />
+      <LineId Id="184" Count="0" />
+      <LineId Id="186" Count="0" />
+      <LineId Id="188" Count="2" />
+      <LineId Id="192" Count="1" />
+      <LineId Id="191" Count="0" />
+      <LineId Id="187" Count="0" />
+      <LineId Id="194" Count="0" />
+      <LineId Id="196" Count="7" />
+      <LineId Id="195" Count="0" />
+      <LineId Id="185" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="205" Count="1" />
+      <LineId Id="204" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.InverseKinetics_2">
+      <LineId Id="262" Count="78" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="205" Count="1" />
+      <LineId Id="204" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.InversePosAndVel">
+      <LineId Id="97" Count="2" />
+      <LineId Id="101" Count="46" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="166" Count="7" />
+      <LineId Id="175" Count="0" />
+      <LineId Id="205" Count="0" />
+      <LineId Id="208" Count="3" />
+      <LineId Id="207" Count="0" />
+      <LineId Id="206" Count="0" />
+      <LineId Id="74" Count="0" />
+      <LineId Id="79" Count="2" />
+      <LineId Id="70" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.InversePosAndVel_1">
+      <LineId Id="97" Count="2" />
+      <LineId Id="101" Count="46" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="166" Count="7" />
+      <LineId Id="175" Count="0" />
+      <LineId Id="205" Count="0" />
+      <LineId Id="74" Count="0" />
+      <LineId Id="79" Count="2" />
+      <LineId Id="70" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.InversePosAndVel_2">
+      <LineId Id="237" Count="84" />
+      <LineId Id="205" Count="0" />
+      <LineId Id="74" Count="0" />
+      <LineId Id="79" Count="2" />
+      <LineId Id="70" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.SetReference">
+      <LineId Id="6" Count="3" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.TipForce">
+      <LineId Id="49" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="21" Count="1" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="54" Count="0" />
+      <LineId Id="23" Count="2" />
+      <LineId Id="75" Count="1" />
+      <LineId Id="97" Count="0" />
+      <LineId Id="100" Count="3" />
+      <LineId Id="98" Count="0" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.TipForce_1">
+      <LineId Id="49" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="21" Count="1" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="54" Count="0" />
+      <LineId Id="23" Count="2" />
+      <LineId Id="75" Count="1" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.TipForce_2">
+      <LineId Id="49" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="21" Count="1" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="54" Count="0" />
+      <LineId Id="23" Count="2" />
+      <LineId Id="75" Count="1" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.TipVelocity">
+      <LineId Id="46" Count="1" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="21" Count="1" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="25" Count="1" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="74" Count="3" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.TipVelocity_1">
+      <LineId Id="46" Count="1" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="21" Count="1" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="25" Count="1" />
+      <LineId Id="17" Count="1" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.TipVelocity_2">
+      <LineId Id="46" Count="1" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="21" Count="1" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="25" Count="1" />
+      <LineId Id="17" Count="1" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="LegController.UpdateDriveFeedbacks">
+      <LineId Id="16" Count="0" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="7" Count="1" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="37" Count="0" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="42" Count="2" />
+      <LineId Id="38" Count="0" />
+      <LineId Id="40" Count="0" />
+      <LineId Id="64" Count="2" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

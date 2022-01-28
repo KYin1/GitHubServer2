@@ -1,0 +1,1187 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="WalkSlopeGait" Id="{9a10535c-5cdc-4847-988f-6b1d0d2a9f20}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK WalkSlopeGait
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	(*cmd var*)
+	period : LREAL := 1;
+	cmdH : LREAL := 0.15;
+	cmdL : LREAL := 0;
+	cmdLa : LREAL := 0;
+	cmdYaw : LREAL := 0;
+	isLastStep : BOOL := FALSE;
+	swingDir : INT := 0;
+	(*protect*)
+	isFeed : BOOL;
+	starveCount : DINT;
+	
+	(*general essential var*)
+	hipPos2B : ARRAY[0..5] OF Vec3;
+	hipPmx2B : ARRAY[0..5] OF Mat3;//wrt body
+	objRotMtx : RotM;
+	
+	jntPosInit : ARRAY[0..5] OF Vec3;
+	bodyPosInit : Vec3;
+	bodyRPYInit : Vec3;
+	bodyPmxInit : Mat3;
+	tipPosInit   : ARRAY[0..5] OF Vec3;
+	tipPosInit2H : ARRAY[0..5] OF Vec3;
+	tipPosInit2B : ARRAY[0..5] OF Vec3;//recover tip pos
+	bodyPos : Vec3;
+	bodyRPY : Vec3;
+	tipPos   : ARRAY[0..5] OF Vec3;
+	tipPos2H : ARRAY[0..5] OF Vec3;
+	bodyRefH : LREAL;
+	
+	jointPosTarget  : ARRAY[0..5, 0..2] OF LREAL; 
+	jointVelTarget  : ARRAY[0..5, 0..2] OF LREAL;  
+	jointFceTarget  : ARRAY[0..5, 0..2] OF LREAL;
+	isFinished : BOOL;
+	(*end of general essential var*)
+	
+	(*specific var in this gait*)
+	bodyPosInit2T : Vec3;
+	bodyPosTrgt : Vec3;
+	bodyRPYTrgt : Vec3;
+	bodyPmxTrgt : Mat3;
+	bodyPmx : Mat3;
+	bodyVelInit : Vec3;
+	bodyVelInit2T : Vec3;
+	bodyVelTrgt2T : Vec3;
+	bodyOmgInit : LREAL;
+	bodyOmgTrgt : LREAL;
+	tipPosTrgt : ARRAY[0..5] OF Vec3;
+	tipPosTrgt2T : ARRAY[0..5] OF Vec3;
+	tipPos2B : ARRAY[0..5] OF Vec3;
+	tipPosTrgtBase : ARRAY[0..5] OF Vec3;
+	
+	bodyPos2T : Vec3;
+	bodyVel : Vec3;
+	bodyVel2T : Vec3;
+	bodyOmg : LREAL;
+	tipVel : ARRAY[0..5] OF Vec3;
+	jntPos   : ARRAY[0..5] OF Vec3;
+	jntVel   : ARRAY[0..5] OF Vec3;
+	lstJntPos: ARRAY[0..5] OF Vec3;
+	jntFce : ARRAY[0..5] OF Vec3;
+	tipFce : ARRAY[0..5] OF Vec3;//2G
+	tipFce2B : ARRAY[0..5] OF Vec3;
+	tipFce2H : ARRAY[0..5] OF Vec3;
+	
+	stepL : LREAL;//直线距离
+	stepDir : LREAL;
+    stepYaw : LREAL;//dyaw
+	deltaT : LREAL;
+	swingID : ARRAY[0..2] OF DINT;
+	stanceID : ARRAY[0..2] OF DINT;
+	isAllContact : BOOL;
+	allContactTime: LREAL;
+	
+	lstRollErr: LREAL:=0;
+	lstPitchErr: LREAL:=0;
+	sumRollErr: LREAL:=0;
+	sumPitchErr: LREAL:=0;
+	kp:LREAL:=1000;
+	ki:LREAL:=3000;//对效果影响较大，kp的1-4倍效果差不多
+	kd:LREAL:=100;//和0差别不明显
+	kRatio:LREAL:=2;//pitch方向增益要给大点，通过该参数控制
+	wrench: Vec3;
+	fceStance: Vec3;
+	readyToRelease: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="Arc2Line" Id="{c90717cb-e782-4b86-af7d-7c2ce38de458}">
+      <Declaration><![CDATA[METHOD Arc2Line : BOOL
+//步长通过弧长定义，但计算需要直线距离
+VAR_INPUT
+	arcLen: LREAL;
+	angle: LREAL;
+END_VAR
+VAR_OUTPUT
+	lineLen: LREAL;
+END_VAR
+VAR
+	radius: LREAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF ABS(angle) < 0.001 THEN
+	lineLen := arcLen;
+ELSE
+	lineLen := arcLen * SIN(angle/2) / (angle/2);
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BodyPlanning" Id="{29a8dc3d-9039-4a0a-ac30-25b8d9d68842}">
+      <Declaration><![CDATA[METHOD BodyPlanning : BOOL
+VAR_INPUT
+	count: DINT;
+END_VAR
+VAR
+	HmItp: HermitInterpolation;
+	i: INT;
+	t: LREAL;
+	decRatio: LREAL;
+	delta: ARRAY[0..2] OF LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//xyz在bodyTrgt坐标系内规划后转换至地面坐标系
+//xy据不同触地时间动态调整
+t := count*deltaT;
+decRatio := 0.2;
+delta[0] := decRatio/2*stepL*COS(stepDir)*COS(decRatio/2*stepYaw/2)
+           -decRatio/2*stepL*SIN(stepDir)*SIN(decRatio/2*stepYaw/2);
+delta[1] := decRatio/2*stepL*COS(stepDir)*SIN(decRatio/2*stepYaw/2)
+           +decRatio/2*stepL*SIN(stepDir)*COS(decRatio/2*stepYaw/2);
+IF t <= allContactTime + period THEN
+	FOR i:=0 TO 1 DO
+		HmItp(t0:=allContactTime,T:=period,
+			  y0:=bodyPosInit2T.data[i],y1:=0,
+			  v0:=bodyVelInit2T.data[i],v1:=bodyVelTrgt2T.data[i],
+			  tNow:=t,
+			  y=>bodyPos2T.data[i],v=>bodyVel2T.data[i]);
+	END_FOR
+ELSIF t <= allContactTime + period + decRatio * period THEN
+	FOR i:=0 TO 1 DO
+		HmItp(t0:=allContactTime+period,T:=decRatio*period,
+			  y0:=0,y1:=delta[i],
+			  v0:=bodyVelTrgt2T.data[i],v1:=0,
+			  tNow:=t,
+			  y=>bodyPos2T.data[i],v=>bodyVel2T.data[i]);
+	END_FOR
+ELSE
+	FOR i:=0 TO 1 DO
+		bodyPos2T.data[i] := delta[i];
+		bodyVel2T.data[i] := 0;
+	END_FOR
+END_IF
+//z前1/2周期完成调整后不变
+IF t <= allContactTime + period/2 THEN
+	HmItp(t0:=allContactTime,T:=period/2,
+		  y0:=bodyPosInit2T.data[2],y1:=0,
+		  v0:=0,v1:=0,
+		  tNow:=t,
+		  y=>bodyPos2T.data[2],v=>bodyVel2T.data[2]);
+ELSE
+	bodyPos2T.data[2] := 0;
+	bodyVel2T.data[2] := 0;
+END_IF
+//转换至地面坐标系
+bodyPos := VecAdd(MatMulVec(bodyPmxTrgt,bodyPos2T),bodyPosTrgt);
+bodyVel := MatMulVec(bodyPmxTrgt,bodyVel2T);
+
+//rpy在地面坐标系内规划
+//roll,pitch在1/2周期内完成调整后不变
+IF t <= allContactTime + period/2 THEN
+	FOR i:=0 TO 1 DO
+		HmItp(t0:=allContactTime,T:=period/2,
+			  y0:=bodyRPYInit.data[i],y1:=bodyRPYTrgt.data[i],
+			  v0:=0,v1:=0,
+			  tNow:=t,
+			  y=>bodyRPY.data[i]);
+	END_FOR
+ELSE
+	FOR i:=0 TO 1 DO
+		bodyRPY.data[i] := bodyRPYTrgt.data[i];
+	END_FOR
+END_IF
+//yaw据不同触地时间动态调整
+delta[2] := decRatio/2*stepYaw;
+IF t <= allContactTime + period THEN
+	HmItp(t0:=allContactTime,T:=period,
+		  y0:=bodyRPYInit.data[2],y1:=bodyRPYTrgt.data[2],
+		  v0:=bodyOmgInit,v1:=bodyOmgTrgt,
+		  tNow:=t,
+		  y=>bodyRPY.data[2],v=>bodyOmg);
+ELSIF t <= allContactTime + period + decRatio * period THEN
+	HmItp(t0:=allContactTime+period,T:=decRatio*period,
+		  y0:=bodyRPYTrgt.data[2],y1:=bodyRPYTrgt.data[2]+delta[2],
+		  v0:=bodyOmgTrgt,v1:=0,
+		  tNow:=t,
+		  y=>bodyRPY.data[2],v=>bodyOmg);
+ELSE
+	bodyRPY.data[2] := bodyRPYTrgt.data[2]+delta[2];
+	bodyOmg := 0;
+END_IF
+objRotMtx(yaw:=bodyRPY.data[2],pitch:=bodyRPY.data[1],roll:=bodyRPY.data[0],rm=>bodyPmx);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CalcAddfce" Id="{3dce8391-3364-4bfb-833f-96de86126deb}">
+      <Declaration><![CDATA[METHOD CalcAddfce : BOOL
+VAR_INPUT
+	count: UDINT;
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	maxAddFce:LREAL;
+	maxFceStance:LREAL;
+	fmatStance: Mat3;
+	//fceStance: Vec3;
+	maxFceSwing:LREAL;
+	fmatSwing: Mat3;
+	fceSwing: Vec3;
+	
+	rollErr: LREAL;
+	pitchErr: LREAL;
+	difRollErr: LREAL;
+	difPitchErr: LREAL;
+	//wrench: Vec3;
+	
+	tipFceTmp: ARRAY[0..5] OF Vec3;
+	ratio: ARRAY[0..5] OF LREAL;
+	i: INT;
+	j: INT;
+	step: LREAL;
+	t: LREAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[maxAddFce:=800;
+step:=4;
+//IF isAllContact=TRUE THEN
+//	sumRollErr:=0;
+//	sumPitchErr:=0;
+//END_IF
+
+rollErr:=bodyRPY.data[0]-gvl.rpy_model[0];
+pitchErr:=bodyRPY.data[1]-gvl.rpy_model[1];
+IF ABS(rollErr) < 0.002 THEN
+	rollErr:=0;
+END_IF
+IF ABS(pitchErr) < 0.002 THEN
+	pitchERr:=0;
+END_IF
+sumRollErr:=sumRollErr+rollErr*deltaT;
+difRollErr:=(rollErr-lstRollErr)/deltaT;
+sumPitchErr:=sumPitchErr+pitchErr*deltaT;
+difPitchErr:=(pitchErr-lstPitchErr)/deltaT;
+lstRollErr:=rollErr;
+lstPitchErr:=pitchErr;
+
+wrench.data[0]:=kp*rollErr+ki*sumRollErr+kd*difRollErr;
+wrench.data[1]:=kRatio*(kp*pitchErr+ki*sumPitchErr+kd*difPitchErr);
+wrench.data[2]:=600;//gravity
+
+//stance leg
+fmatStance:=setMat3(tipPos[stanceID[0]].data[1]-bodyPos.data[1],tipPos[stanceID[1]].data[1]-bodyPos.data[1],tipPos[stanceID[2]].data[1]-bodyPos.data[1],
+              -tipPos[stanceID[0]].data[0]+bodyPos.data[0],-tipPos[stanceID[1]].data[0]+bodyPos.data[0],-tipPos[stanceID[2]].data[0]+bodyPos.data[0],
+              1,1,1);
+fceStance:=MatMulVec(inv3(fmatStance),wrench);
+maxFceStance:=MAX(ABS(fceStance.data[0]),ABS(fceStance.data[1]),ABS(fceStance.data[2]));
+IF maxFceStance>maxAddFce THEN
+	FOR i:=0 TO 2 DO
+		tipFceTmp[stanceID[i]]:=SetVec3(0,0,-fceStance.data[i]/maxFceStance*maxAddFce);
+	END_FOR
+ELSE	
+	FOR i:=0 TO 2 DO
+		tipFceTmp[stanceID[i]]:=SetVec3(0,0,-fceStance.data[i]);
+	END_FOR
+END_IF
+//swing leg
+(*fmatSwing:=setMat3(tipPos[swingID[0]].data[1]-bodyPos.data[1],tipPos[swingID[1]].data[1]-bodyPos.data[1],tipPos2B[swingID[2]].data[1]-bodyPos.data[1],
+              -tipPos2B[swingID[0]].data[0]+bodyPos.data[0],-tipPos2B[swingID[1]].data[0]+bodyPos.data[0],-tipPos2B[swingID[2]].data[0]+bodyPos.data[0],
+              1,1,1);
+fceSwing:=MatMulVec(inv3(fmatSwing),wrench);
+maxFceSwing:=MAX(ABS(fceSwing.data[0]),ABS(fceSwing.data[1]),ABS(fceSwing.data[2]));
+IF maxFceSwing>maxAddFce THEN
+	FOR i:=0 TO 2 DO
+		tipFceTmp[swingID[i]]:=SetVec3(0,0,-fceSwing.data[i]/maxFceSwing*maxAddFce);
+	END_FOR
+ELSE	
+	FOR i:=0 TO 2 DO
+		tipFceTmp[swingID[i]]:=SetVec3(0,0,-fceSwing.data[i]);
+	END_FOR
+END_IF*)
+
+//方法1,空中给摆动腿加力，感觉只会导致更提前触地，并不能改善倾斜
+(*
+t := count*deltaT;
+IF ABS(t-allContactTime)<deltaT THEN
+	FOR i:=0 TO 5 DO
+		ratio[i]:=1;
+	END_FOR
+END_IF
+FOR i:=0 TO 2 DO
+	IF t-allContactTime<period/2 THEN
+		ratio[swingID[i]]:=ratio[swingID[i]]*0.99;//1-0
+	ELSE
+		ratio[swingID[i]]:=ratio[swingID[i]]/0.99;//0-1
+	END_IF
+	IF ratio[swingID[i]]]]><![CDATA[>1 THEN//限制在0.01~1
+		ratio[swingID[i]]:=1;
+	END_IF
+	IF ratio[swingID[i]]<0.01 THEN
+		ratio[swingID[i]]:=0.01;
+	END_IF
+	tipFce[stanceID[i]].data[2]:=ratio[stanceID[i]]*tipFceTmp[stanceID[i]].data[2];
+	tipFce[swingID[i]].data[2]:=ratio[swingID[i]]*tipFceTmp[swingID[i]].data[2];
+END_FOR*)
+
+//方法2
+FOR i:=0 TO 2 DO
+	IF tipFceTmp[stanceID[i]].data[2]-tipFce[stanceID[i]].data[2]>step THEN
+		tipFce[stanceID[i]].data[2]:=tipFce[stanceID[i]].data[2]+step;
+	ELSIF tipFceTmp[stanceID[i]].data[2]-tipFce[stanceID[i]].data[2]<-step THEN
+		tipFce[stanceID[i]].data[2]:=tipFce[stanceID[i]].data[2]-step;
+	ELSE
+		tipFce[stanceID[i]].data[2]:=tipFce[stanceID[i]].data[2];
+	END_IF
+END_FOR
+
+FOR i:=0 TO 2 DO
+	tipFce[swingID[i]]:=SetVec3(0,0,tipFce[swingID[i]].data[2]*0.995);
+END_FOR
+
+FOR i:=0 TO 5 DO
+	tipFce2B[i] := MatMulVec(MatTranspose(bodyPmx),     tipFce[i]);
+	tipFce2H[i] := MatMulVec(MatTranspose(hipPmx2B[i]), tipFce2B[i]);
+	gvl.legCtrl[i].DesireDriveForce(fTipDes:=tipFce2H[i].data,motorAng:=jntPos[i].data,
+                                    legIndex:=i,fDrvDes=>jntFce[i].data);
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CalcSlope" Id="{e4f3dc3e-9136-4c95-89f2-ab621a94bbec}">
+      <Declaration><![CDATA[METHOD CalcSlope : BOOL
+VAR_INPUT
+	yaw: LREAL;
+END_VAR
+VAR_OUTPUT
+	roll: LREAL;
+	pitch: LREAL;
+	deltaH: LREAL;//身体需调整的高度
+	tipDelta: Vec3;//足尖需调整的距离
+END_VAR
+VAR
+	i: INT;
+	bodyActualPmx: Mat3;
+	tipActualPos2H: Vec3;
+	tipActualPos2B: Vec3;
+	tipActPos: ARRAY[0..5] OF Vec3;
+	va1 : Vec3;
+	vb1 : Vec3;
+	vz1 : Vec3;
+	va2 : Vec3;
+	vb2 : Vec3;
+	vz2 : Vec3;
+	vz  : Vec3;
+	avgTipZ: LREAL;
+	actualH: LREAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[objRotMtx(yaw:=0,pitch:=GVL.rpy_model[1],roll:=GVL.rpy_model[0],
+		  rm=>bodyActualPmx);
+FOR i:=0 TO 5 DO
+	tipActualPos2H:=SetVec3(GVL.tipActualPos[i,0],GVL.tipActualPos[i,1],GVL.tipActualPos[i,2]);
+	tipActualPos2B:=VecAdd(MatMulVec(hipPmx2B[i],tipActualPos2H),hipPos2B[i]);
+	tipActPos[i]:=VecAdd(MatMulVec(bodyActualPmx,tipActualPos2B),bodyPos);
+END_FOR
+//用tipActPos替代tipPos看效果
+va1 := SetVec3(tipActPos[stanceID[0]].data[0]-tipActPos[stanceID[1]].data[0],
+	          tipActPos[stanceID[0]].data[1]-tipActPos[stanceID[1]].data[1],
+			  tipActPos[stanceID[0]].data[2]-tipActPos[stanceID[1]].data[2]);
+vb1 := SetVec3(tipActPos[stanceID[0]].data[0]-tipActPos[stanceID[2]].data[0],
+	          tipActPos[stanceID[0]].data[1]-tipActPos[stanceID[2]].data[1],
+			  tipActPos[stanceID[0]].data[2]-tipActPos[stanceID[2]].data[2]);
+vz1 := VecNormalize(VecCross(va1,vb1));
+IF vz1.data[2]<0 THEN//保证vz朝上
+	vz1 := VecNeg(vz1);
+END_IF
+va2 := SetVec3(tipActPos[swingID[0]].data[0]-tipActPos[swingID[1]].data[0],
+	          tipActPos[swingID[0]].data[1]-tipActPos[swingID[1]].data[1],
+			  tipActPos[swingID[0]].data[2]-tipActPos[swingID[1]].data[2]);
+vb2 := SetVec3(tipActPos[swingID[0]].data[0]-tipActPos[swingID[2]].data[0],
+	          tipActPos[swingID[0]].data[1]-tipActPos[swingID[2]].data[1],
+			  tipActPos[swingID[0]].data[2]-tipActPos[swingID[2]].data[2]);
+vz2 := VecNormalize(VecCross(va2,vb2));
+IF vz2.data[2]<0 THEN//保证vz朝上
+	vz2 := VecNeg(vz2);
+END_IF
+
+vz := VecNormalize(VecAdd(vz1,vz2));
+
+//trgtPmxB2G*z=vz,求出trgtPmx对应的roll和pitch
+roll  := ASIN(  vz.data[0]*SIN(yaw)-vz.data[1]*COS(yaw) );
+pitch := ATAN( (vz.data[0]*COS(yaw)+vz.data[1]*SIN(yaw)) / vz.data[2] );
+
+//地面坐标系
+//avgTipZ := (tipPos[stanceID[0]].data[2]+tipPos[stanceID[1]].data[2]+tipPos[stanceID[2]].data[2])/3;
+//actualH := bodyPos[2]-avgTipZ;//地面坐标系内身体实际高度
+//deltaH := bodyRefH / vz.data[2] - actualH;
+//身体坐标系
+avgTipZ := (tipActPos[stanceID[0]].data[2]+tipActPos[stanceID[1]].data[2]+tipActPos[stanceID[2]].data[2]
+           +tipActPos[swingID[0]].data[2]+tipActPos[swingID[1]].data[2]+tipActPos[swingID[2]].data[2])/6;
+actualH := bodyPos.data[2]-avgTipZ;//地面坐标系内身体实际高度
+deltaH := bodyRefH - actualH*vz.data[2];
+
+//地面坐标系
+//垂直坡面方向高度向量，减去竖直方向高度向量
+tipDelta := VecAdd( VecMulNum(vz,bodyRefH),SetVec3(0,0,-bodyRefH/vz.data[2]) );
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DoPlanning" Id="{6f968621-a835-4994-a4ee-7a7f7de35522}">
+      <Declaration><![CDATA[METHOD DoPlanning : BOOL
+VAR_INPUT
+	count: UDINT;
+END_VAR
+VAR
+	i,j : INT;	
+	tmpID: ARRAY [0..2] OF DINT;
+	
+	(*init var*)
+	(*bodyWid  : LREAL := 0.306;
+	bodyLen  : LREAL := 0.712;
+	bodyLen2 : LREAL := 0.250;
+	bodyAng  : LREAL := pi/4;
+	tipYsum : LREAL;*)
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF count = 0 THEN
+	Initialize();
+	(*
+	hipPos2B[0] := SetVec3( -bodyLen2/2,  bodyWid/2, 0);
+	hipPos2B[1] := SetVec3(  bodyLen2/2,  bodyWid/2, 0);
+	hipPos2B[2] := SetVec3(   bodyLen/2,          0, 0);
+	hipPos2B[3] := SetVec3(  bodyLen2/2, -bodyWid/2, 0);
+	hipPos2B[4] := SetVec3( -bodyLen2/2, -bodyWid/2, 0);
+	hipPos2B[5] := SetVec3(  -bodyLen/2,          0, 0);
+	
+	objRotMtx(yaw:=-bodyAng   , pitch:=0, roll:=pi/2, rm=>hipPmx2B[0]);
+	objRotMtx(yaw:= bodyAng+pi, pitch:=0, roll:=pi/2, rm=>hipPmx2B[1]);
+	objRotMtx(yaw:=         pi, pitch:=0, roll:=pi/2, rm=>hipPmx2B[2]);
+	objRotMtx(yaw:=-bodyAng+pi, pitch:=0, roll:=pi/2, rm=>hipPmx2B[3]);
+	objRotMtx(yaw:= bodyAng   , pitch:=0, roll:=pi/2, rm=>hipPmx2B[4]);
+	objRotMtx(yaw:= 0         , pitch:=0, roll:=pi/2, rm=>hipPmx2B[5]);
+	
+	//获取初始关节位置
+	FOR i:=0 TO 5 DO
+		FOR j:=0 TO 2 DO
+			jntPosInit[i].data[j] := gvl.jntLastRefPos[i,j];
+		END_FOR
+	END_FOR
+	
+	//获取初始身体和足尖位置
+	tipYSum := 0;
+	FOR i:=0 TO 5 DO
+		gvl.legCtrl[i].ForwardKinetics(motorAngles := jntPosInit[i].data,legIndex := i,tipPosition => tipPosInit2H[i].data);
+		tipYSum := tipYSum + tipPosInit2H[i].data[1];
+	END_FOR
+	bodyRefH := -tipYSum/6.0;//positive
+	bodyPosInit := SetVec3(0, 0, 0);
+	bodyRPYInit := SetVec3(gvl.rpy_model[0],gvl.rpy_model[1],0);
+	objRotMtx(yaw:=0,pitch:=gvl.rpy_model[1],roll:=gvl.rpy_model[0],rm=>bodyPmxInit);
+	
+	FOR i:=0 TO 5 DO
+		tipPosInit2B[i]:=VecAdd(MatMulVec(hipPmx2B[i],tipPosInit2H[i]),hipPos2B[i]);
+		tipPosInit[i]:=VecAdd(MatMulVec(bodyPmxInit,tipPosInit2B[i]),bodyPosInit);
+	END_FOR
+	
+	//初始化规划变量
+	bodyPos := bodyPosInit;
+	bodyRPY := bodyRPYInit;
+	tipPos := tipPosInit;
+	tipPos2H := tipPosInit2H;
+	
+	FOR i := 0 TO 5 DO
+		FOR j := 0 TO 2 DO
+			jointPosTarget[i, j] := jntPosInit[i].data[j];
+			jointVelTarget[i, j] := 0;
+			jointFceTarget[i, j] := 0;
+			lstJntPos[i].data[j] := jntPosInit[i].data[j];
+		END_FOR
+	END_FOR*)
+	
+	deltaT := 1.0 / gvl.sampleRate;
+	isAllContact := TRUE;
+	allContactTime := 0;
+	isFinished := FALSE;
+	isLastStep := FALSE;
+	FOR i:=0 TO 2 DO
+		swingID[i] := 2*i;
+		stanceID[i] := 2*i+1;
+	END_FOR
+	bodyVel := SetVec3(0,0,0);
+	bodyOmg := 0;
+END_IF
+
+//WatchDog(count);
+IF isAllContact = TRUE THEN
+	//状态更新
+	isAllContact := FALSE;
+	tmpID := swingID;
+	swingID := stanceID;
+	stanceID := tmpID;
+	
+	//处理第一步、最后一步的不同步长、速度
+	IF count = 0 THEN//first step
+		stepL := SQRT(cmdL*cmdL+cmdLa*cmdLa)/2;
+		stepDir := Atan2(cmdLa,cmdL);
+		stepYaw := cmdYaw/180*pi / 2;
+		bodyVelTrgt2T := SetVec3(cmdL/period,cmdLa/period,0);
+		bodyOmgTrgt := cmdYaw/180*pi / period;
+	ELSIF isLastStep = TRUE THEN//last step
+		stepL := SQRT(cmdL*cmdL+cmdLa*cmdLa)/2;
+		stepDir := Atan2(cmdLa,cmdL);
+		stepYaw := cmdYaw/180*pi / 2;
+		bodyVelTrgt2T := SetVec3(0,0,0);
+		bodyOmgTrgt := 0;
+	ELSE
+		stepL := SQRT(cmdL*cmdL+cmdLa*cmdLa);
+		stepDir := Atan2(cmdLa,cmdL);
+		stepYaw := cmdYaw/180*pi;
+		bodyVelTrgt2T := SetVec3(cmdL/period,cmdLa/period,0);
+		bodyOmgTrgt := cmdYaw/180*pi / period;
+	END_IF
+	
+	UpdateInitAndTrgt();
+END_IF
+
+IF readyToRelease=FALSE THEN
+	BodyPlanning(count);
+	FOR i:=0 TO 2 DO
+		SwingPlanning(count,swingID[i]);
+		//StancePlanning-->do nothing;
+	END_FOR
+END_IF
+//else do no planning
+
+IF isContact(count,swingID[0]) = TRUE AND VecNorm(tipVel[swingID[0]]) < 1E-3 AND
+   isContact(count,swingID[1]) = TRUE AND VecNorm(tipVel[swingID[1]]) < 1E-3 AND
+   isContact(count,swingID[2]) = TRUE AND VecNorm(tipVel[swingID[2]]) < 1E-3 THEN
+   isAllContact := TRUE;
+   allContactTime := count*deltaT;
+END_IF
+
+//计算hip坐标系内足尖位置-->关节位置速度
+IF readyToRelease=FALSE THEN
+	FOR i:=0 TO 5 DO
+		tipPos2B[i] := MatMulVec(MatTranspose(bodyPmx),    VecAdd(tipPos[i],  VecNeg(bodyPos)));
+		tipPos2H[i] := MatMulVec(MatTranspose(hipPmx2B[i]),VecAdd(tipPos2B[i],VecNeg(hipPos2B[i])));
+		gvl.legCtrl[i].InverseKinetics(tipPosition := tipPos2H[i].data, refPosLast:=lstJntPos[i].data,legIndex:=i,
+									   motorAngles => jntPos[i].data);
+		jntVel[i] := VecAdd(jntPos[i],VecNeg(lstJntPos[i]));
+		lstJntPos[i] := jntPos[i];
+	END_FOR
+	CalcAddfce(count);
+END_IF
+//else do no planning
+
+// link to physical outputs
+FOR i := 0 TO 5 DO
+	FOR j := 0 TO 2 DO
+		jointPosTarget[i, j] := jntPos[i].data[j];
+		jointVelTarget[i, j] := jntVel[i].data[j];
+		IF readyToRelease=FALSE THEN
+			jointFceTarget[i, j] := jntFce[i].data[j];
+		END_IF
+	END_FOR
+END_FOR
+
+IF isLastStep=TRUE AND isAllContact=TRUE THEN
+	readyToRelease := TRUE;
+	isLastStep := FALSE;
+END_IF
+IF readyToRelease=TRUE THEN//use 50 count to release
+	FOR i := 0 TO 5 DO
+		FOR j := 0 TO 2 DO
+			jointFceTarget[i, j] := jointFceTarget[i, j]-0.02*jntFce[i].data[j];
+		END_FOR
+	END_FOR
+	IF count*deltaT-allContactTime>=50*deltaT THEN
+		isFinished := TRUE;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Initialize" Id="{91603869-c784-4f90-8613-13434fbdb696}">
+      <Declaration><![CDATA[METHOD Initialize : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	i,j : UINT;
+	tipYsum : LREAL;
+	offset0 : Vec3;
+	offset5 : Vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[hipPmx2B[0]:=SetMat3(1,0,0,0,0,-1,0,1,0);
+hipPmx2B[1]:=SetMat3(-1,0,0,0,0,1,0,1,0);
+hipPmx2B[2]:=SetMat3(-1,0,0,0,0,1,0,1,0);
+hipPmx2B[3]:=SetMat3(-1,0,0,0,0,1,0,1,0);
+hipPmx2B[4]:=SetMat3(-1,0,0,0,0,1,0,1,0);
+hipPmx2B[5]:=SetMat3(1,0,0,0,0,-1,0,1,0);
+
+hipPos2B[0] := SetVec3(-0.369, -0.125, 0);
+hipPos2B[1] := SetVec3(     0,  -0.28, 0);
+hipPos2B[2] := SetVec3(  0.36, -0.125, 0);
+hipPos2B[3] := SetVec3(  0.36,  0.125, 0);
+hipPos2B[4] := SetVec3(     0,   0.28, 0);
+hipPos2B[5] := SetVec3(-0.369,  0.125, 0);
+
+//获取初始关节位置
+FOR i:=0 TO 5 DO
+	FOR j:=0 TO 2 DO
+		jntPosInit[i].data[j] := gvl.jntLastRefPos[i,j];
+	END_FOR
+END_FOR
+
+//获取初始身体和足尖位置
+tipYSum := 0;
+FOR i:=0 TO 5 DO
+	gvl.legCtrl[i].ForwardKinetics(motorAngles := jntPosInit[i].data,legIndex:=i,tipPosition => tipPosInit2H[i].data);
+	tipYSum := tipYSum + tipPosInit2H[i].data[1];
+END_FOR
+bodyRefH := -tipYSum/6.0;//positive
+bodyPosInit := SetVec3(0, 0, 0);
+bodyRPYInit := SetVec3(gvl.rpy_model[0],gvl.rpy_model[1],0);
+objRotMtx(yaw:=0,pitch:=gvl.rpy_model[1],roll:=gvl.rpy_model[0],rm=>bodyPmxInit);
+
+FOR i:=0 TO 5 DO
+	tipPosInit2B[i]:=VecAdd(MatMulVec(hipPmx2B[i],tipPosInit2H[i]),hipPos2B[i]);
+	tipPosTrgtBase[i]:=tipPosInit2B[i];
+	IF i=0 THEN
+		tipPosTrgtBase[i].data[1]:=tipPosTrgtBase[i].data[1]-0.03;
+	ELSIF i=5 THEN
+		tipPosTrgtBase[i].data[1]:=tipPosTrgtBase[i].data[1]+0.03;
+	END_IF
+	tipPosInit[i]:=VecAdd(MatMulVec(bodyPmxInit,tipPosInit2B[i]),bodyPosInit);
+END_FOR
+
+//初始化规划变量
+bodyPos := bodyPosInit;
+bodyRPY := bodyRPYInit;
+tipPos := tipPosInit;
+tipPos2H := tipPosInit2H;
+
+FOR i := 0 TO 5 DO
+	FOR j := 0 TO 2 DO
+		jointPosTarget[i, j] := jntPosInit[i].data[j];
+		jointVelTarget[i, j] := 0;
+		jointFceTarget[i, j] := 0;
+		lstJntPos[i].data[j] := jntPosInit[i].data[j];
+	END_FOR
+	tipFce[i]:=SetVec3(0,0,0);
+END_FOR
+
+lstRollErr:=0;
+lstPitchErr:=0;
+sumRollErr:=0;
+sumPitchErr:=0;
+readyToRelease:=FALSE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="isContact" Id="{2ef90bd5-a900-4643-abf8-8edbea0b085a}">
+      <Declaration><![CDATA[METHOD isContact : BOOL
+VAR_INPUT
+	count: DINT;
+	legID: DINT;
+END_VAR
+VAR
+	fceLimit : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF legID = 0 OR legID = 5 THEN
+	fceLimit := 80;
+ELSE
+	fceLimit := 60;
+END_IF
+
+//IF count*deltaT > allContactTime+period THEN//离线测试
+IF count*deltaT > allContactTime+period/4 AND  gvl.tipActualFce[legID,1] > fceLimit THEN
+	isContact := TRUE;
+ELSE
+	isContact := FALSE;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SwingPlanning" Id="{55b5f1c8-6f7c-4441-a05c-b00e47654394}">
+      <Declaration><![CDATA[METHOD SwingPlanning : BOOL
+VAR_INPUT
+	count: DINT;
+	legID: DINT;
+END_VAR
+VAR
+	i: INT;
+	t: LREAL;
+	tp: ARRAY[0..4] OF LREAL;
+	xp: ARRAY[0..4] OF LREAL;
+	yp: ARRAY[0..4] OF LREAL;
+	zp: ARRAY[0..4] OF LREAL;
+	landVel: LREAL;
+	decTime: LREAL;
+	acc: LREAL;
+	objSpline: CubicSpline;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//generate 5 waypoints
+tp[0] := allContactTime;
+tp[1] := tp[0] + period / 6;
+tp[2] := tp[1] + period / 6;
+tp[3] := tp[2] + period / 3;
+tp[4] := tp[3] + period / 3;
+
+xp[0] := tipPosInit[legID].data[0];
+yp[0] := tipPosInit[legID].data[1];
+zp[0] := tipPosInit[legID].data[2];
+
+xp[4] := tipPosTrgt[legID].data[0];
+yp[4] := tipPosTrgt[legID].data[1];
+zp[4] := tipPosTrgt[legID].data[2];
+
+xp[1] := xp[0] - swingDir * cmdH/2;//0 or 1
+yp[1] := yp[0];
+zp[1] := zp[0] + cmdH/2;
+
+xp[3] := xp[4];
+yp[3] := yp[4];
+zp[3] := zp[4] + cmdH/2;
+
+xp[2] := (xp[0]+xp[4])/2;
+yp[2] := (yp[0]+yp[4])/2;
+zp[2] := (zp[0]+zp[4])/2 + cmdH;
+
+//generate traj
+t := count*deltaT;
+landVel := -0.05 / period;
+decTime := 0.1;
+IF isContact(count,legID) = FALSE THEN
+	IF t <= allContactTime + period THEN
+		objSpline(x:=tp,y:=xp,dy0:=0,dy4:=0,      xt:=t,yt=>tipPos[legID].data[0],vt=>tipVel[legID].data[0]);
+		objSpline(x:=tp,y:=yp,dy0:=0,dy4:=0,      xt:=t,yt=>tipPos[legID].data[1],vt=>tipVel[legID].data[1]);
+		objSpline(x:=tp,y:=zp,dy0:=0,dy4:=landVel,xt:=t,yt=>tipPos[legID].data[2],vt=>tipVel[legID].data[2]);
+	ELSE
+		tipPos[legID].data[2] := tipPos[legID].data[2] + landVel*deltaT;//到达目标位置后继续下探
+	END_IF
+ELSE
+	//强制停止，没有减速过程。减速过程的运动距离会导致机器人被顶起来
+	FOR i:=0 TO 2 DO
+		tipPos[legID].data[i] := tipPos[legID].data[i];
+		tipVel[legID].data[i] := 0;
+	END_FOR
+	(*IF VecNorm(tipVel[legID]) > 1E-3 THEN
+		FOR i:=0 TO 2 DO
+			acc := -tipVel[legID].data[i] / decTime;
+			tipPos[legID].data[i] := tipPos[legID].data[i] + tipVel[legID].data[i]*deltaT + 0.5*acc*deltaT*deltaT;
+			tipVel[legID].data[i] := tipVel[legID].data[i] + acc*deltaT;
+		END_FOR
+	ELSE
+		FOR i:=0 TO 2 DO
+			tipPos[legID].data[i] := tipPos[legID].data[i];
+			tipVel[legID].data[i] := 0;
+		END_FOR
+	END_IF*)
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateInitAndTrgt" Id="{2afe0ba4-ea87-4834-b61a-7d7754fc6ff4}">
+      <Declaration><![CDATA[METHOD UpdateInitAndTrgt : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	i: INT;
+	bodyDist2T: Vec3;
+	tipBias : Vec3;
+	rotHalfYaw : Mat3;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//1.确定身体初始和目标位置、速度
+//位置速度更新
+bodyPosInit := bodyPos;
+bodyVelInit := bodyVel;
+bodyRPYInit := bodyRPY;
+bodyOmgInit := bodyOmg;
+
+//位姿计算：姿态在地面坐标系描述，位置在bodyTrgt坐标系描述
+bodyRPYTrgt.data[2] := bodyRPYInit.data[2] + stepYaw;//yaw
+CalcSlope(yaw := bodyRPYTrgt.data[2],
+		  roll => bodyRPYTrgt.data[0], pitch => bodyRPYTrgt.data[1],
+		  deltaH => bodyDist2T.data[2],tipDelta => tipBias);
+//bodyRPYTrgt.data[0] := gvl.rpy_model[0] + bodyRPYTrgt.data[0] - bodyRPYInit.data[0];//引入实际角度修正
+//bodyRPYTrgt.data[1] := gvl.rpy_model[1] + bodyRPYTrgt.data[1] - bodyRPYInit.data[1];//引入实际角度修正
+objRotMtx(yaw:=bodyRPYTrgt.data[2],pitch:=bodyRPYTrgt.data[1],roll:=bodyRPYTrgt.data[0],
+		  rm=>bodyPmxTrgt);
+
+Arc2Line(arcLen:=stepL,angle:=stepYaw,lineLen=>stepL);
+bodyDist2T.data[0] := stepL*COS(stepDir)*COS(-stepYaw/2)-stepL*SIN(stepDir)*SIN(-stepYaw/2);//身体转yaw时，位置只转yaw/2
+bodyDist2T.data[1] := stepL*COS(stepDir)*SIN(-stepYaw/2)+stepL*SIN(stepDir)*COS(-stepYaw/2);
+
+bodyPosTrgt := VecAdd(bodyPosInit,MatMulVec(bodyPmxTrgt,bodyDist2T));
+bodyPosInit2T := VecNeg(bodyDist2T);
+bodyVelInit2T := MatMulVec(MatTranspose(bodyPmxTrgt),bodyVelInit);
+
+//2.确定摆动腿初始和目标位置，速度总为0
+tipPosInit := tipPos;
+
+objRotMtx(yaw:=stepYaw/2,pitch:=0,roll:=0,rm=>rotHalfYaw);
+FOR i:=0 TO 5 DO
+	tipPosTrgt2T[i] := MatMulVec(rotHalfYaw,VecAdd(tipPosTrgtBase[i],SetVec3(stepL/2*COS(stepDir),stepL/2*SIN(stepDir),0)));
+	//tipPosTrgt[i] := VecAdd(VecAdd(MatMulVec(bodyPmxTrgt,tipPosTrgt2T[i]),bodyPosTrgt),tipBias);
+	tipPosTrgt[i] := VecAdd(MatMulVec(bodyPmxTrgt,tipPosTrgt2T[i]),bodyPosTrgt);
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="WatchDog" Id="{0adde6df-589c-493e-acd1-449180482832}">
+      <Declaration><![CDATA[METHOD WatchDog : BOOL
+VAR_INPUT
+	count: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF isFeed=TRUE THEN
+	starveCount := count + TRUNC(gvl.sampleRate*0.5);//0.5 second
+	isFeed := FALSE;
+END_IF
+
+IF count>=starveCount THEN
+	cmdL := 0;
+	cmdLa := 0;
+	cmdYaw := 0;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="WalkSlopeGait">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.Arc2Line">
+      <LineId Id="21" Count="1" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="23" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.BodyPlanning">
+      <LineId Id="94" Count="0" />
+      <LineId Id="137" Count="0" />
+      <LineId Id="153" Count="0" />
+      <LineId Id="97" Count="1" />
+      <LineId Id="186" Count="0" />
+      <LineId Id="99" Count="0" />
+      <LineId Id="188" Count="0" />
+      <LineId Id="101" Count="7" />
+      <LineId Id="114" Count="0" />
+      <LineId Id="116" Count="6" />
+      <LineId Id="128" Count="4" />
+      <LineId Id="95" Count="0" />
+      <LineId Id="138" Count="0" />
+      <LineId Id="140" Count="5" />
+      <LineId Id="154" Count="2" />
+      <LineId Id="139" Count="0" />
+      <LineId Id="157" Count="3" />
+      <LineId Id="135" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="89" Count="0" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="22" Count="3" />
+      <LineId Id="19" Count="1" />
+      <LineId Id="37" Count="1" />
+      <LineId Id="40" Count="1" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="6" Count="0" />
+      <LineId Id="76" Count="0" />
+      <LineId Id="42" Count="0" />
+      <LineId Id="44" Count="3" />
+      <LineId Id="43" Count="0" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="59" Count="3" />
+      <LineId Id="51" Count="0" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="80" Count="1" />
+      <LineId Id="49" Count="0" />
+      <LineId Id="171" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.CalcAddfce">
+      <LineId Id="19" Count="0" />
+      <LineId Id="133" Count="0" />
+      <LineId Id="42" Count="1" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="52" Count="5" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="31" Count="1" />
+      <LineId Id="96" Count="0" />
+      <LineId Id="95" Count="0" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="156" Count="0" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="50" Count="1" />
+      <LineId Id="58" Count="0" />
+      <LineId Id="66" Count="0" />
+      <LineId Id="60" Count="1" />
+      <LineId Id="63" Count="1" />
+      <LineId Id="69" Count="0" />
+      <LineId Id="72" Count="1" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="62" Count="0" />
+      <LineId Id="155" Count="0" />
+      <LineId Id="158" Count="12" />
+      <LineId Id="157" Count="0" />
+      <LineId Id="183" Count="0" />
+      <LineId Id="177" Count="0" />
+      <LineId Id="260" Count="0" />
+      <LineId Id="186" Count="0" />
+      <LineId Id="220" Count="1" />
+      <LineId Id="223" Count="1" />
+      <LineId Id="222" Count="0" />
+      <LineId Id="178" Count="0" />
+      <LineId Id="189" Count="0" />
+      <LineId Id="181" Count="0" />
+      <LineId Id="190" Count="2" />
+      <LineId Id="228" Count="2" />
+      <LineId Id="227" Count="0" />
+      <LineId Id="231" Count="1" />
+      <LineId Id="184" Count="1" />
+      <LineId Id="180" Count="0" />
+      <LineId Id="182" Count="0" />
+      <LineId Id="154" Count="0" />
+      <LineId Id="122" Count="0" />
+      <LineId Id="124" Count="0" />
+      <LineId Id="129" Count="0" />
+      <LineId Id="126" Count="0" />
+      <LineId Id="131" Count="0" />
+      <LineId Id="130" Count="0" />
+      <LineId Id="132" Count="0" />
+      <LineId Id="127" Count="0" />
+      <LineId Id="125" Count="0" />
+      <LineId Id="288" Count="0" />
+      <LineId Id="77" Count="1" />
+      <LineId Id="76" Count="0" />
+      <LineId Id="82" Count="0" />
+      <LineId Id="81" Count="0" />
+      <LineId Id="117" Count="1" />
+      <LineId Id="83" Count="0" />
+      <LineId Id="85" Count="0" />
+      <LineId Id="84" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.CalcSlope">
+      <LineId Id="201" Count="0" />
+      <LineId Id="199" Count="0" />
+      <LineId Id="205" Count="0" />
+      <LineId Id="204" Count="0" />
+      <LineId Id="198" Count="0" />
+      <LineId Id="209" Count="0" />
+      <LineId Id="206" Count="0" />
+      <LineId Id="210" Count="0" />
+      <LineId Id="6" Count="0" />
+      <LineId Id="13" Count="1" />
+      <LineId Id="16" Count="1" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="54" Count="2" />
+      <LineId Id="134" Count="8" />
+      <LineId Id="133" Count="0" />
+      <LineId Id="173" Count="0" />
+      <LineId Id="176" Count="0" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="26" Count="1" />
+      <LineId Id="113" Count="0" />
+      <LineId Id="37" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="68" Count="0" />
+      <LineId Id="67" Count="0" />
+      <LineId Id="69" Count="1" />
+      <LineId Id="60" Count="0" />
+      <LineId Id="149" Count="0" />
+      <LineId Id="115" Count="0" />
+      <LineId Id="66" Count="0" />
+      <LineId Id="76" Count="0" />
+      <LineId Id="75" Count="0" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="72" Count="0" />
+      <LineId Id="74" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.DoPlanning">
+      <LineId Id="6" Count="1" />
+      <LineId Id="396" Count="0" />
+      <LineId Id="331" Count="49" />
+      <LineId Id="329" Count="1" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="64" Count="0" />
+      <LineId Id="262" Count="0" />
+      <LineId Id="176" Count="0" />
+      <LineId Id="321" Count="0" />
+      <LineId Id="68" Count="1" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="70" Count="0" />
+      <LineId Id="205" Count="1" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="313" Count="0" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="233" Count="3" />
+      <LineId Id="232" Count="0" />
+      <LineId Id="237" Count="0" />
+      <LineId Id="255" Count="0" />
+      <LineId Id="217" Count="1" />
+      <LineId Id="303" Count="0" />
+      <LineId Id="219" Count="1" />
+      <LineId Id="199" Count="0" />
+      <LineId Id="216" Count="0" />
+      <LineId Id="209" Count="0" />
+      <LineId Id="304" Count="0" />
+      <LineId Id="210" Count="0" />
+      <LineId Id="200" Count="1" />
+      <LineId Id="207" Count="0" />
+      <LineId Id="214" Count="0" />
+      <LineId Id="305" Count="0" />
+      <LineId Id="215" Count="0" />
+      <LineId Id="203" Count="1" />
+      <LineId Id="197" Count="0" />
+      <LineId Id="177" Count="0" />
+      <LineId Id="238" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="429" Count="0" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="62" Count="0" />
+      <LineId Id="84" Count="0" />
+      <LineId Id="86" Count="0" />
+      <LineId Id="85" Count="0" />
+      <LineId Id="430" Count="1" />
+      <LineId Id="249" Count="0" />
+      <LineId Id="248" Count="0" />
+      <LineId Id="250" Count="2" />
+      <LineId Id="254" Count="0" />
+      <LineId Id="253" Count="0" />
+      <LineId Id="257" Count="0" />
+      <LineId Id="256" Count="0" />
+      <LineId Id="438" Count="0" />
+      <LineId Id="259" Count="0" />
+      <LineId Id="258" Count="0" />
+      <LineId Id="261" Count="0" />
+      <LineId Id="264" Count="0" />
+      <LineId Id="395" Count="0" />
+      <LineId Id="266" Count="1" />
+      <LineId Id="260" Count="0" />
+      <LineId Id="411" Count="0" />
+      <LineId Id="439" Count="1" />
+      <LineId Id="269" Count="5" />
+      <LineId Id="444" Count="0" />
+      <LineId Id="276" Count="0" />
+      <LineId Id="445" Count="0" />
+      <LineId Id="277" Count="0" />
+      <LineId Id="268" Count="0" />
+      <LineId Id="285" Count="0" />
+      <LineId Id="263" Count="0" />
+      <LineId Id="286" Count="0" />
+      <LineId Id="295" Count="0" />
+      <LineId Id="287" Count="0" />
+      <LineId Id="426" Count="0" />
+      <LineId Id="432" Count="1" />
+      <LineId Id="436" Count="1" />
+      <LineId Id="427" Count="0" />
+      <LineId Id="441" Count="2" />
+      <LineId Id="428" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.Initialize">
+      <LineId Id="155" Count="4" />
+      <LineId Id="153" Count="1" />
+      <LineId Id="72" Count="5" />
+      <LineId Id="85" Count="3" />
+      <LineId Id="90" Count="0" />
+      <LineId Id="94" Count="8" />
+      <LineId Id="129" Count="0" />
+      <LineId Id="103" Count="4" />
+      <LineId Id="182" Count="0" />
+      <LineId Id="187" Count="0" />
+      <LineId Id="183" Count="3" />
+      <LineId Id="108" Count="14" />
+      <LineId Id="141" Count="0" />
+      <LineId Id="123" Count="0" />
+      <LineId Id="167" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="176" Count="3" />
+      <LineId Id="175" Count="0" />
+      <LineId Id="197" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.isContact">
+      <LineId Id="37" Count="1" />
+      <LineId Id="40" Count="1" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="51" Count="0" />
+      <LineId Id="42" Count="0" />
+      <LineId Id="7" Count="1" />
+      <LineId Id="10" Count="1" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.SwingPlanning">
+      <LineId Id="5" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="120" Count="3" />
+      <LineId Id="31" Count="0" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="26" Count="2" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="29" Count="1" />
+      <LineId Id="32" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="33" Count="1" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="37" Count="1" />
+      <LineId Id="40" Count="0" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="41" Count="1" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="43" Count="0" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="49" Count="0" />
+      <LineId Id="61" Count="0" />
+      <LineId Id="57" Count="0" />
+      <LineId Id="53" Count="0" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="51" Count="1" />
+      <LineId Id="54" Count="2" />
+      <LineId Id="58" Count="0" />
+      <LineId Id="102" Count="0" />
+      <LineId Id="99" Count="2" />
+      <LineId Id="98" Count="0" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="66" Count="0" />
+      <LineId Id="65" Count="0" />
+      <LineId Id="68" Count="0" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="67" Count="0" />
+      <LineId Id="75" Count="0" />
+      <LineId Id="77" Count="0" />
+      <LineId Id="79" Count="1" />
+      <LineId Id="76" Count="0" />
+      <LineId Id="74" Count="0" />
+      <LineId Id="60" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.UpdateInitAndTrgt">
+      <LineId Id="6" Count="25" />
+      <LineId Id="33" Count="2" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="57" Count="0" />
+      <LineId Id="47" Count="0" />
+    </LineIds>
+    <LineIds Name="WalkSlopeGait.WatchDog">
+      <LineId Id="7" Count="5" />
+      <LineId Id="16" Count="1" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

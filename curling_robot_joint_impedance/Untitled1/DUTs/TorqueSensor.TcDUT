@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <DUT Name="TorqueSensor" Id="{b82d6cf9-4bbc-4d70-a06d-72feb4bf2234}">
+    <Declaration><![CDATA[TYPE TorqueSensor :
+STRUCT
+	trqsensorValue AT%I* : REAL; 
+	targetTrqValue AT%I* : REAL;
+    
+	actPos         AT%Q* : REAL;
+	actVel         AT%Q* : REAL;
+	TgtPos         AT%Q* : REAL;
+	TgtVel         AT%Q* : REAL;
+	TrqOff         AT%Q* : REAL;
+	SetCtrlPrm     AT%Q* : USINT; 
+	reqReset      : usint := 0;
+	
+	signalPosSlope: LREAL := 35;
+	signalNegSlope: LREAL := 35;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

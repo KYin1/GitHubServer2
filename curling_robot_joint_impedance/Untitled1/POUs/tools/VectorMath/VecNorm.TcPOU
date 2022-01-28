@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="VecNorm" Id="{fa0ebb31-90ed-46d8-88ee-d9f627f7e92a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION VecNorm : lreal
+VAR_INPUT
+	a : Vec3;
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[VecNorm := SQRT(a.data[0] * a.data[0] + a.data[1] * a.data[1] + a.data[2] * a.data[2]);
+]]></ST>
+    </Implementation>
+    <LineIds Name="VecNorm">
+      <LineId Id="7" Count="0" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

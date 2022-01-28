@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="SdoWrite" Id="{309d8133-6e36-4a07-8183-946a0aa09d4b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK SdoWrite
+VAR_INPUT
+	sNetId      : T_AmsNetID;
+	nSlaveAddr  : UINT;
+	nIndex		: WORD; (* CoE Object Index *)
+	nSubIndex	: BYTE; (* Subindex of CoE Object *)
+	pSrcBuf		: PVOID; (* variable address to be written to the CoE Object *)
+	cbBufLen	: UDINT; (* size of variable to be written *)
+	bComplAcc	: BOOL;
+END_VAR
+VAR
+	fbSdoWrite	: FB_EcCoESdoWriteEx;
+    bError     : BOOL;
+    nErrId     : UDINT;
+END_VAR
+VAR_OUTPUT
+	bWriteOnce : BOOL := FALSE;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[bWriteOnce := FALSE;
+fbSdoWrite(
+    sNetId     := sNetId,
+    nSlaveAddr := nSlaveAddr,
+    nIndex     := nIndex,
+    nSubIndex  := nSubIndex,
+    pSrcBuf    := pSrcBuf,
+    cbBufLen   := cbBufLen,
+	bCompleteAccess := bComplAcc,
+    bExecute   := TRUE
+);
+IF NOT fbSdoWrite.bBusy THEN
+  	IF NOT fbSdoWrite.bError THEN 
+       	(* write successful *)
+   		bError := FALSE;
+   		nErrId := 0;
+		bWriteOnce := TRUE;
+    ELSE 
+       	(* write failed *)
+       	bError := fbSdoWrite.bError;
+       	nErrId := fbSdoWrite.nErrId;
+    END_IF
+	fbSdoWrite(bExecute := FALSE);
+END_IF ]]></ST>
+    </Implementation>
+    <LineIds Name="SdoWrite">
+      <LineId Id="26" Count="22" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

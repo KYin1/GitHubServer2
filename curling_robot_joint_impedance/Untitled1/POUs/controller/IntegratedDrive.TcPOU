@@ -1,0 +1,957 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="IntegratedDrive" Id="{e7a00fae-1910-4097-81e3-2094de2f9c08}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK PUBLIC IntegratedDrive//和驱动器有关数组都按照每条腿的小腿、大腿、侧摆顺序给定,编码0-17
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	motor              : Motor;
+	//motor_targetVel:dint;
+	motor_targetVel:lreal;
+	trqSensor          : TorqueSensor;
+	
+	statusMode         : UINT;
+	statusDispStr      : STRING(25);
+	opModeDispStr      : STRING(25);
+	enableBit          : BOOL;
+	setAck             : UINT;
+	isHomeSwitchOn     : BOOL;
+	
+	reductionRatio     : LREAL := 50.0;
+    positionHomeOffset : LREAL;
+	positionOffset     : LREAL := -1.3781499114412897226085228010063;
+	count2radianRatio  : LREAL := 2*pi/1048576;  // 2*pi/1048576
+	motorAngle         : LREAL;// 电机实际角度值
+	motorAngVel        : LREAL;
+	motorDir           : INT   := 1;
+	
+	tgtAngle           : LREAL := 4.71238898; // 1.5 * pi  yk 电机目标角度值
+	tgtAngVel          : LREAL := 0;
+	addTorque          : LREAL := 0;
+	
+	isHomeSetMode      : BOOL;
+	inHomeModeCount    : UINT;
+	isHoming           : BOOL;
+	//homeVel            : dint := 2000;// 2000 inc/s
+	homeVel            : LREAL := 0.01;// 0.1rad/s
+	
+	cvSetVel           : LREAL := 0;
+	cvStart            : BOOL;
+	cvStop             : BOOL;
+	cvCount            : DINT := 0;
+	
+	trqSensorDir       : INT   := 1;
+	trqFiltered        : LREAL := 0;
+	trqDotFiltered     : LREAL := 0;
+	trqCalibrated      : LREAL := 0;
+	
+	isInForceControl   : BOOL := FALSE;
+	forceModeCount     : UDINT := 0;
+	trqErrSumLast      : LREAL := 0;
+	trqOutput          : LREAL := 0;
+	
+	kVirtual           : LREAL := 220; //SQ
+	bVirtual           : LREAL := 25;//SQ
+	//kVirtual           : LREAL := 0;
+	//bVirtual           : LREAL := 0;
+	//reducerColbConstant: LREAL := 0.0 * 100;
+	reducerColbConstant: LREAL := 0.01 * 100;
+	
+	kpTrqLoop          : LREAL := 0.5; 
+	kiTrqLoop          : LREAL := 0.75;
+	trqCmdLimit        : LREAL := 130;
+	
+	trqControlAngRange : ARRAY[0..1] OF LREAL := [3.51, 5.91];
+	trqConstant        : LREAL := 0.11;
+	curMax             : LREAL := 13;
+	
+	faultCount         : UINT  := 0;
+	
+	motorActualPosLimit:DINT:=0;
+	motorActualPosUpperLimit:DINT:=524288;
+	motorActualPosLowerLimit:DINT:=-524288;
+	motorStepIncrement:DINT:=1048576;
+	//velocityUnitRatio:LREAL:=0.001;//0.001rpm
+	velocityUnitRatio:LREAL:=0.01;//0.01rpm
+	
+	index:UINT:=0;//motor sequence number
+	motorActualHomePosIncrement:DINT:=0;
+	
+	//absMove
+	IsAbsMoveState:BOOL:=FALSE;
+	cpStart:BOOL:=FALSE;
+	cpStop:BOOL:=FALSE;
+	AbsMoveTgtPos:LREAL;
+	cpCount            : DINT := 0;
+	cpStartAngle:LREAL;
+	cpRefAngle:LREAL;
+	
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="AbsMove" Id="{1ef4a420-59d3-4bfb-94d3-72260dd8ec27}">
+      <Declaration><![CDATA[METHOD PUBLIC AbsMove : BOOL
+VAR_INPUT
+END_VAR
+
+VAR CONSTANT
+	ACC_TOTAL_CNT:   DINT := 2000;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF index=18 OR index=19 OR index=20 THEN
+		count2radianRatio:=2*pi/4096.0/9.0;
+ELSE
+		count2radianRatio:=2*pi/1048576.0;	
+END_IF
+
+IF cpStart=TRUE THEN
+	IF cpCount < ACC_TOTAL_CNT THEN
+		cpRefAngle:=cpStartAngle+(AbsMoveTgtPos-cpStartAngle)* SIN(0.5 * pi * cvCount / ACC_TOTAL_CNT);
+	  	cpCount := cpCount + 1; 
+   	ELSE
+	  cpRefAngle := AbsMoveTgtPos;
+   	END_IF 
+	motor.targetPos:= motorDir*TRUNC((cpRefAngle-positionHomeOffset+positionOffset)/count2radianRatio);
+ELSE
+	motor.targetPos:=motor.actualPos;
+END_IF
+IF cpStop=TRUE THEN
+	motor.targetPos:=motor.actualPos;
+	cpStart:=FALSE;
+	IsAbsMoveState:=FALSE;
+	cpCount:=0;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CalculateCurrentCmd" Id="{0f423b9c-e247-4b2e-98d1-935b23916c3c}">
+      <Declaration><![CDATA[METHOD PUBLIC CalculateCurrentCmd : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	curCmd: DINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[curCmd := TRUNC(trqOutput / reductionRatio / trqConstant / curMax * 1000); //yk 扭矩常数和最大电流进行折算，还有一种通过，扭矩常数和最大电流乘积就是最大扭矩
+motor.targetTrq := motorDir * DINT_TO_INT(curCmd);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CalculateMotorAngle" Id="{49351a5a-d6e9-4e1b-9df7-d37bb1097c5a}">
+      <Declaration><![CDATA[METHOD PUBLIC CalculateMotorAngle : INT
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//motorAngVel := motorDir * motor.actualVel * count2radianRatio;
+IF index=18 OR index=19 or index=20 THEN
+	motorAngVel := motorDir * motor.actualVel *2.0*pi/(9.0*4096.0);
+ELSE
+	motorAngVel := velocityUnitRatio*motorDir * motor.actualVel *2*pi/60/ 50;//rpm motor.actualVel在电机上折算,正确
+END_IF
+
+//motorAngVel := velocityUnitRatio*motorDir * motor.actualVel *2*pi/60;//rpm motor.actualVel在腿上折算
+
+motorActualPosLimit:=motor.actualPos;
+motorActualPosLimit:=TRUNC(AngleCutFun(angRow:=motorActualPosLimit , upper:=motorActualPosUpperLimit , lower:=motorActualPosLowerLimit , rangLength:=motorStepIncrement ));
+
+motorActualHomePosIncrement:=TRUNC(AngleCutFun(angRow:=motorActualHomePosIncrement , upper:=motorActualPosUpperLimit , lower:=motorActualPosLowerLimit , rangLength:=motorStepIncrement ));
+IF index<>20 THEN
+	//positionOffset:=motorActualHomePosIncrement;
+	positionOffset := motorDir * motorActualHomePosIncrement * count2radianRatio;
+END_IF
+
+motorAngle := motorDir * motorActualPosLimit * count2radianRatio - positionOffset + positionHomeOffset;// yk positionOffset是home位置对应编码器数值，positionHomeOffset是找home停止位置对应的弧度,老的编程方式需要记录当前home处count值给positionoffset，新的编程其值为0
+
+IF  index=2 OR index=3 OR index=5 OR index=6 OR index=8 OR index=9 OR index=11 OR index=12 OR index=14 OR index=17 THEN
+	motorAngle:=AngleCutFun(angRow:=motorAngle , upper:=pi , lower:=-pi , rangLength:=2*pi );
+END_IF
+
+IF index=1 OR index=4 OR index=7 OR index=10 OR index=13 OR index=16 OR index=0 OR  index=15 THEN
+	motorAngle:=AngleCutFun(angRow:=motorAngle , upper:=2*pi , lower:=0 , rangLength:=2*pi );
+END_IF
+
+
+CalculateMotorAngle := 0;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CalibrateTrqData" Id="{768ea503-a044-4f64-84c0-61344e1e6b04}">
+      <Declaration><![CDATA[METHOD PUBLIC CalibrateTrqData : BOOL
+VAR_INPUT
+END_VAR
+VAR_STAT
+END_VAR
+VAR
+	LPFilter : LowpassFilter;
+	trqSensorRawData      : LREAL;
+END_VAR
+
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[trqSensorRawData := trqSensor.trqsensorValue;
+
+IF trqSensorRawData > 0 THEN
+	trqSensorRawData := trqSensorRawData / trqSensor.signalPosSlope;
+ELSE
+	trqSensorRawData := trqSensorRawData / trqSensor.signalNegSlope;
+END_IF
+
+trqSensorRawData := trqSensorDir * trqSensorRawData;
+
+LPFilter(x := trqSensorRawData,
+	     y := trqFiltered,
+		 ydot := trqDotFiltered,
+		 yout => trqFiltered,
+		 ydotout => trqDotFiltered);
+
+trqCalibrated := trqFiltered;
+//trqCalibrated := trqSensorRawData;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DriverControl" Id="{fa68935c-1caa-4ccc-bf3b-cd6169b7e7a2}">
+      <Declaration><![CDATA[METHOD PUBLIC DriverControl : BOOL
+VAR_INPUT
+	operationModeCmd : USINT;
+	enableCmd        : BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[motor.opMode := operationModeCmd;
+
+///////////////////////////////////////////////////////////////////////////////////////yk???????
+IF isHomeSetMode THEN
+	motor.opMode := 6;
+	IF motor.opModeDisp = 6 THEN
+		inHomeModeCount := inHomeModeCount + 1;
+	END_IF
+END_IF
+
+IF enableCmd = TRUE AND enableBit = FALSE THEN     	 (*Enable driver*)
+	CASE statusMode OF
+		(*0,32:;*)                               (*NOT READY TO SWITCH ON*)
+		64,96:  motor.ctrlWord := 6;             (*SWITCH ON DISABLED*)
+		33:     motor.ctrlWord := 7;             (*READY TO SWITCH ON*)
+		35:     motor.ctrlWord := 15;            (*SWITCHED ON*)
+		39:;                                     (*OPERATION ENABLED*)
+		7:      motor.ctrlWord := 15;            (*QUICK STOP ACTIVE*)
+		4:      motor.ctrlWord := 15;
+		(*15,47:controlword:=128;                (*FAULT REACTION ACTIVE*)
+		8,40:controlword:=128;*)                 (*FAULT*)
+		ELSE    motor.ctrlWord := 128; 
+	END_CASE
+	//trqErrSumLast := 0;
+ELSIF enableCmd = FALSE AND enableBit = TRUE  THEN
+	motor.ctrlWord := 0;                         (*Disable driver*)	
+END_IF 
+
+IF isHomeSetMode THEN
+	IF statusMode = 39 AND motor.opModeDisp = 6 AND inHomeModeCount > 20 THEN
+		IF setAck = 0 THEN
+			motor.ctrlWord := 31;//yk 31=2# 1_1111,home开始
+		ELSE
+			motor.ctrlWord := 15;
+			isHomeSetMode := FALSE;
+		END_IF
+	END_IF
+END_IF
+
+motor.maxTrq := 2500;
+DriverControl := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GoHome" Id="{7258bd15-e746-46b9-8e43-6817092d4ce4}">
+      <Declaration><![CDATA[METHOD PUBLIC GoHome : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Handle homing state
+IF isHoming THEN
+	IF isHomeSwitchOn THEN
+		cvStop := TRUE;
+		cvStart := FALSE;
+		isHoming := FALSE;
+	END_IF
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ImpedControl" Id="{90a87d5a-a947-44e4-8a2a-22b90f11be70}">
+      <Declaration><![CDATA[METHOD PUBLIC ImpedControl : BOOL
+VAR_INPUT
+    desiredTorque : LREAL;
+	isExternalIC  : BOOL;
+END_VAR
+VAR_OUTPUT
+	curCmd: DINT;
+END_VAR
+VAR
+	measuredTrq : LREAL;
+	posError : LREAL;
+	velError : LREAL;
+	trqCmd: LREAL;
+	
+	coulombFric: LREAL;
+	signOfVel: LREAL;
+	trqErr: LREAL;
+	trqCorrection: LREAL;
+
+	trqCmd2: LREAL;
+
+	minDistanceMotor: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[measuredTrq := trqCalibrated;
+posError := motorAngle - tgtAngle;
+IF ABS(posError)>pi THEN
+	minDistanceMotor:=MinDistanceValue(motorAngle,tgtAngle);
+	posError :=minDistanceMotor - tgtAngle;
+END_IF
+velError := motorAngVel - tgtAngVel;
+
+IF isExternalIC THEN
+	trqCmd := desiredTorque;
+ELSE
+	trqCmd := -kVirtual * posError - bVirtual * velError + addTorque;  // Impedance control
+END_IF
+//trqCmd := 0;   // Following control
+
+// deadzone for torque measurement
+IF ABS(measuredTrq) < 0.15 THEN
+	measuredTrq := 0;
+END_IF
+
+signOfVel := 0;
+IF motorAngVel > 0.001 THEN
+	signOfVel := 1;
+END_IF
+IF motorAngVel < -0.001 THEN
+	signOfVel := -1;
+END_IF
+
+coulombFric := signOfVel * reducerColbConstant;
+
+//////////////////////////////////////////////////////////////////////////////////////////
+//扭矩传感器数据用来搭电流环
+trqErr := trqCmd - (-measuredTrq);//yk 扭矩方向和标定方向正负关系决定
+//trqErr := trqCmd - (measuredTrq);//yk 扭矩方向和标定方向正负关系决定
+trqErrSumLast := trqErrSumLast + trqErr / DINT_TO_LREAL(gvl.sampleRate);
+trqCorrection := kpTrqLoop * trqErr + kiTrqLoop * trqErrSumLast;
+
+trqCmd2 := trqCmd + coulombFric + trqCorrection;
+
+IF trqCmd2 > trqCmdLimit THEN
+	trqCmd2 := trqCmdLimit;
+END_IF
+IF trqCmd2 < -trqCmdLimit THEN
+	trqCmd2 := -trqCmdLimit;
+END_IF
+//////////////////////////////////////////////////////////////////////////////////////////
+
+(*IF motorAngle < trqControlAngRange[0] THEN
+	trqCmd2 := 0;
+	trqErrSumLast := 0;
+END_IF
+IF motorAngle > trqControlAngRange[1] THEN
+	trqCmd2 := 0;
+	trqErrSumLast := 0;
+END_IF*)
+
+trqOutput := trqCmd2;
+
+ImpedControl := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitParam" Id="{4a66b263-ad33-44fc-81fc-89dad9007965}">
+      <Declaration><![CDATA[METHOD PUBLIC InitParam : BOOL
+VAR_INPUT
+	motorDirIn     : INT;
+	trqSensorDirIn : INT;
+	posHomeOffsetIn: LREAL;
+
+	signalPosSlope : LREAL;
+	signalNegSlope : LREAL;
+	redcClbConst   : LREAL;
+	
+	//homingVel      : DINT;
+	homingVel      : lreal;
+	trqCtrlUpperAng: LREAL;
+	trqCtrlLowerAng: LREAL;
+	tgtAngleIn  : LREAL;
+	motorActualHomePosIncrementIn:DINT;
+	indexIn:UINT;
+	
+	kVirtualIn:LREAL;
+	bVirtualIn:LREAL;
+	kpTrqLoopIn:LREAL;
+	kiTrqLoopIn:LREAL;
+	count2radianRatioIn:LREAL;
+	
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[motorDir           := motorDirIn;
+THIS^.trqSensorDir := trqSensorDirIn;
+positionHomeOffset := posHomeOffsetIn;
+
+trqSensor.signalNegSlope := signalNegSlope;
+trqSensor.signalPosSlope := signalPosSlope;
+
+homeVel             := homingVel;
+reducerColbConstant := redcClbConst;
+
+trqControlAngRange[1] := trqCtrlUpperAng;
+trqControlAngRange[0] := trqCtrlLowerAng;
+tgtAngle              := tgtAngleIn;
+tgtAngVel             := 0;
+addTorque             := 0;
+motorActualHomePosIncrement:=motorActualHomePosIncrementIn;
+index:=indexIn;
+kVirtual:=kVirtualIn;
+bVirtual:=bVirtualIn;
+kpTrqLoop:=kpTrqLoopIn;
+kiTrqLoop:=kiTrqLoopIn;
+count2radianRatio:=count2radianRatioIn;
+
+
+
+InitParam := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="JogControl" Id="{9ca8b1b4-1072-4a5a-b844-b9d8183de82b}">
+      <Declaration><![CDATA[METHOD JogControl : BOOL
+VAR_INPUT
+END_VAR
+
+VAR CONSTANT
+	ACC_TOTAL_CNT:   DINT := 500;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF cvStart THEN
+   IF cvCount < ACC_TOTAL_CNT THEN
+	  motor_targetVel := motorDir * TRUNC(cvSetVel * SIN(0.5 * pi * cvCount / ACC_TOTAL_CNT)); 
+	  cvCount := cvCount + 1; 
+   ELSE
+	  motor_targetVel := motorDir * cvSetVel;
+   END_IF   
+END_IF
+
+IF cvStop THEN
+   cvStart:=FALSE;   
+   IF cvCount > 0 THEN
+	  motor_targetVel := motorDir * TRUNC(cvSetVel * SIN(0.5 * pi * cvCount / ACC_TOTAL_CNT)); 
+	  cvCount := cvCount - 1; 
+   ELSE
+	  cvCount := 0;	  
+	  motor_targetVel := motorDir * 0;
+      cvStop:=FALSE;
+   END_IF
+END_IF
+
+//motor.targetVel:= TRUNC(1/velocityUnitRatio*motor_targetVel*60/(2*pi));//腿端
+IF index=18 OR index=19 OR index=20 THEN
+	motor.targetVel:=TRUNC(motor_targetVel*9.0/(2*pi)*4096);
+ELSE
+	motor.targetVel:= TRUNC(1.0/velocityUnitRatio*motor_targetVel*60.0/(2*pi)*50.0);//电机端,确认
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetImpdTarget" Id="{ddfde7ac-bdd0-449c-b970-c50f68ec55b0}">
+      <Declaration><![CDATA[METHOD PUBLIC SetImpdTarget : BOOL
+VAR_INPUT
+	//yk  按照小腿、大腿、侧摆顺序给出;不是按照单腿运动学中侧摆角、大腿角、小腿角给出（小腿角加了pi）,在DownloadDriveCmds 中折算
+	targetPos, targetVel, additionalFce : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[tgtAngle := targetPos;
+tgtAngVel := targetVel;
+addTorque := additionalFce;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetImpedanceParam" Id="{7739ff54-d5c4-4972-84ef-f752d149f0aa}">
+      <Declaration><![CDATA[METHOD PUBLIC SetImpedanceParam : BOOL
+VAR_INPUT
+	kp, kd, kptrq, kitrq : LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[kVirtual := kp;
+bVirtual := kd;
+kpTrqLoop  := kptrq;
+kiTrqLoop  := kitrq;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetInitPosition" Id="{d7a507da-ea94-4145-bf80-869294790e41}">
+      <Declaration><![CDATA[METHOD PUBLIC SetInitPosition : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[
+motorActualPosLimit:=motor.actualPos;
+WHILE(motorActualPosLimit>motorActualPosUpperLimit OR motorActualPosLimit<motorActualPosLowerLimit) DO
+	IF motorActualPosLimit>motorActualPosUpperLimit THEN
+		motorActualPosLimit:=motorActualPosLimit-motorStepIncrement;
+	ELSE
+		motorActualPosLimit:=motorActualPosLimit+motorStepIncrement;			
+	END_IF
+END_WHILE
+
+positionOffset := motorDir * motorActualPosLimit * count2radianRatio;
+
+//isHomeSetMode      := TRUE;
+isHomeSetMode      := false;
+inHomeModeCount    := 0;
+SetInitPosition    := FALSE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetTrgVel" Id="{3c72c0f2-4fbe-4364-b02f-d4f425aed9f0}">
+      <Declaration><![CDATA[METHOD PUBLIC SetTrgVel : BOOL
+VAR_INPUT
+	trgVelIn:lreal;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[cvSetVel:=trgVelIn;
+motor.targetVel:=motorDir *TRUNC(trgVelIn*9.0/(2*pi)*4096);
+motor_targetVel := motorDir * cvSetVel;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StartAbsMove" Id="{f716e28b-3e7a-418a-89ad-163b91e27f91}">
+      <Declaration><![CDATA[METHOD PUBLIC StartAbsMove : BOOL
+VAR_INPUT
+	AbsMoveTgtPosIn:lreal;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsAbsMoveState:=TRUE;
+AbsMoveTgtPos:=AbsMoveTgtPosIn;
+cpStart:=TRUE;
+cpStop:=FALSE;
+cpStartAngle:=motorAngle;
+cpCount :=0;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StartForceControl" Id="{f1d6d817-3d53-42c2-8f0d-583d41913d4c}">
+      <Declaration><![CDATA[METHOD PUBLIC StartForceControl : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// check force ctrl condition
+IF NOT enablebit THEN
+	StartForceControl := FALSE;
+	RETURN;
+END_IF
+
+// change control mode flag
+isInForceControl := TRUE;
+
+
+// set normal angle and angvel
+tgtAngle := motorAngle;
+tgtAngVel := 0;
+addTorque := 0;
+
+// reset force control integration
+trqErrSumLast := 0;
+
+// set force control count
+forceModeCount := 1;
+
+StartForceControl := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StartGoHome" Id="{26bd7b2b-b13b-4144-a989-0296cbfa1826}">
+      <Declaration><![CDATA[METHOD PUBLIC StartGoHome : BOOL
+VAR_INPUT
+END_VAR
+
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[isHoming := TRUE;
+cvSetVel := homeVel;
+cvStart  := TRUE;
+cvStop   := FALSE;
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StartJog" Id="{a3c8cb4d-6d3b-4e7b-a771-61fbb02e6c77}">
+      <Declaration><![CDATA[METHOD PUBLIC StartJog : BOOL
+VAR_INPUT
+	//jogVelocity : DINT;
+	jogVelocity :lreal;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[cvSetVel := jogVelocity;
+cvStart  := TRUE;
+cvStop   := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StatusDisplay" Id="{35c4b9fb-a098-4376-9701-58148b60f83d}">
+      <Declaration><![CDATA[METHOD PUBLIC StatusDisplay : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[statusMode := motor.statusWord AND 2#0000_0000_0110_1111;//取出6个1对应的位
+setAck:= motor.statusWord AND 2#0001_0000_0000_0000;  //yk home模式下1代表找home出错，0代表home过程中没有错,找home时使用
+isHomeSwitchOn := (DINT_TO_UDINT(motor.digInputs) AND 2#0001_0000_0000_0000_0000_0000) = 2#0001_0000_0000_0000_0000_0000;//yk 17到21位为数字输入信号,home开关在第5个input口，所以第21位取出来，驱动器tuning时可以找到第几个输入,对应即可
+
+(* Axis status display *)
+CASE statusMode OF
+	(*0,32:;*)                                  (*NOT READY TO SWITCH ON*)
+	64,96 : statusDispStr := 'DISABLED';        (*SWITCH ON DISABLED*)//2#100_0000,2#110_0000,
+	33    : statusDispStr := 'READY TO POWON';  (*READY TO SWITCH ON*)//2#010_0001
+	35    : statusDispStr := 'POWERED ON';      (*SWITCHED ON*)//2#010_0011
+	39    : statusDispStr := 'ENABLED';         (*OPERATION ENABLED*)//2#010_0111
+	7     : statusDispStr := 'QUICK STOP';      (*QUICK STOP ACTIVE*)//2#000_0111
+	(*15,47:controlword:=128;                   (*FAULT REACTION ACTIVE*)
+	8,40:controlword:=128;*)                    (*FAULT*)
+	ELSE statusDispStr:='FAULT';
+END_CASE
+(* set enable bit *)
+IF statusMode = 39 THEN
+	enableBit := TRUE;
+ELSE
+	enableBit := FALSE;
+END_IF
+
+IF statusDispStr = 'FAULT' THEN
+	faultCount := faultCount + 1;
+ELSE
+	faultCount := 0;
+END_IF
+
+(*IF faultCount > 1 THEN
+	gvl.emergencyStop := TRUE;
+END_IF*)
+
+CASE motor.opModeDisp OF
+    -1: opModeDispStr  := 'No mode';
+	0 : opModeDispStr  := 'Reserved';
+	1 : opModeDispStr  := 'Profiled pos';
+	2 : opModeDispStr  := 'Velocity';
+	3 : opModeDispStr  := 'Profile vel';
+	4 : opModeDispStr  := 'Profiled trq';
+	5 : opModeDispStr  := 'Reserved';
+	6 : opModeDispStr  := 'Homing mode';
+	7 : opModeDispStr  := 'Inter position';
+	8 : opModeDispStr  := 'Syn pos cycle';
+	9 : opModeDispStr  := 'Syn vel cycle';
+	10: opModeDispStr  := 'Syn trq cycle';
+	ELSE 
+        opModeDispStr  := 'Reserved';
+END_CASE
+
+StatusDisplay := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StopAbsMove" Id="{e9db895c-3765-4cce-87c0-ec8d2af0dc95}">
+      <Declaration><![CDATA[METHOD PUBLIC StopAbsMove : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsAbsMoveState:=FALSE;
+cpStart:=FALSE;
+cpStop:=TRUE;
+cpCount :=0;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StopForceControl" Id="{f7bdbbd5-f32a-4f7a-9b13-07233e1f77ac}">
+      <Declaration><![CDATA[METHOD PUBLIC StopForceControl : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[StopForceControl := TRUE;
+// change control mode flag
+isInForceControl := FALSE;
+
+// set normal angle and angvel
+tgtAngle  := motorAngle;
+tgtAngVel := 0;
+addTorque := 0;
+
+motor.targetVel := 0;
+motor.targetPos := motor.actualPos;
+motor.targetTrq := 0;
+
+// reset force control integration
+trqErrSumLast := 0;
+
+// reset force control count
+forceModeCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StopJog" Id="{4931f0be-afa1-4280-9497-1fb775be90c4}">
+      <Declaration><![CDATA[METHOD PUBLIC StopJog : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[cvStart  := FALSE;
+cvStop   := TRUE;
+isHoming := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="IntegratedDrive">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.AbsMove">
+      <LineId Id="29" Count="3" />
+      <LineId Id="27" Count="1" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="41" Count="1" />
+      <LineId Id="37" Count="2" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="13" Count="1" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="15" Count="1" />
+      <LineId Id="18" Count="1" />
+      <LineId Id="43" Count="0" />
+      <LineId Id="17" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.CalculateCurrentCmd">
+      <LineId Id="6" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.CalculateMotorAngle">
+      <LineId Id="6" Count="0" />
+      <LineId Id="98" Count="1" />
+      <LineId Id="102" Count="2" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="82" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="75" Count="1" />
+      <LineId Id="108" Count="1" />
+      <LineId Id="111" Count="0" />
+      <LineId Id="110" Count="0" />
+      <LineId Id="38" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="51" Count="0" />
+      <LineId Id="77" Count="0" />
+      <LineId Id="54" Count="0" />
+      <LineId Id="87" Count="2" />
+      <LineId Id="86" Count="0" />
+      <LineId Id="93" Count="0" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.CalibrateTrqData">
+      <LineId Id="112" Count="6" />
+      <LineId Id="171" Count="1" />
+      <LineId Id="119" Count="5" />
+      <LineId Id="147" Count="1" />
+      <LineId Id="183" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.DriverControl">
+      <LineId Id="64" Count="0" />
+      <LineId Id="116" Count="0" />
+      <LineId Id="93" Count="0" />
+      <LineId Id="92" Count="0" />
+      <LineId Id="94" Count="0" />
+      <LineId Id="108" Count="2" />
+      <LineId Id="95" Count="0" />
+      <LineId Id="65" Count="12" />
+      <LineId Id="86" Count="0" />
+      <LineId Id="78" Count="2" />
+      <LineId Id="84" Count="0" />
+      <LineId Id="97" Count="2" />
+      <LineId Id="103" Count="0" />
+      <LineId Id="101" Count="0" />
+      <LineId Id="105" Count="2" />
+      <LineId Id="104" Count="0" />
+      <LineId Id="102" Count="0" />
+      <LineId Id="100" Count="0" />
+      <LineId Id="96" Count="0" />
+      <LineId Id="85" Count="0" />
+      <LineId Id="83" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.GoHome">
+      <LineId Id="6" Count="7" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.ImpedControl">
+      <LineId Id="173" Count="1" />
+      <LineId Id="293" Count="1" />
+      <LineId Id="297" Count="0" />
+      <LineId Id="295" Count="0" />
+      <LineId Id="175" Count="22" />
+      <LineId Id="245" Count="0" />
+      <LineId Id="198" Count="0" />
+      <LineId Id="247" Count="0" />
+      <LineId Id="199" Count="0" />
+      <LineId Id="270" Count="0" />
+      <LineId Id="200" Count="10" />
+      <LineId Id="246" Count="0" />
+      <LineId Id="211" Count="11" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.InitParam">
+      <LineId Id="146" Count="0" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="222" Count="0" />
+      <LineId Id="221" Count="0" />
+      <LineId Id="223" Count="0" />
+      <LineId Id="226" Count="0" />
+      <LineId Id="114" Count="0" />
+      <LineId Id="149" Count="2" />
+      <LineId Id="186" Count="0" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="242" Count="0" />
+      <LineId Id="258" Count="0" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="276" Count="0" />
+      <LineId Id="297" Count="0" />
+      <LineId Id="325" Count="0" />
+      <LineId Id="298" Count="0" />
+      <LineId Id="326" Count="0" />
+      <LineId Id="351" Count="0" />
+      <LineId Id="299" Count="1" />
+      <LineId Id="296" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.JogControl">
+      <LineId Id="14" Count="18" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="40" Count="0" />
+      <LineId Id="57" Count="1" />
+      <LineId Id="60" Count="1" />
+      <LineId Id="59" Count="0" />
+      <LineId Id="49" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.SetImpdTarget">
+      <LineId Id="5" Count="0" />
+      <LineId Id="7" Count="1" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.SetImpedanceParam">
+      <LineId Id="5" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="8" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.SetInitPosition">
+      <LineId Id="21" Count="0" />
+      <LineId Id="23" Count="6" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.SetTrgVel">
+      <LineId Id="11" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="10" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.StartAbsMove">
+      <LineId Id="5" Count="0" />
+      <LineId Id="8" Count="2" />
+      <LineId Id="15" Count="1" />
+      <LineId Id="7" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.StartForceControl">
+      <LineId Id="8" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="15" Count="1" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="21" Count="1" />
+      <LineId Id="29" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="6" Count="0" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="23" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.StartGoHome">
+      <LineId Id="7" Count="1" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.StartJog">
+      <LineId Id="7" Count="1" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.StatusDisplay">
+      <LineId Id="6" Count="0" />
+      <LineId Id="44" Count="1" />
+      <LineId Id="7" Count="18" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="49" Count="0" />
+      <LineId Id="51" Count="0" />
+      <LineId Id="53" Count="1" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="56" Count="0" />
+      <LineId Id="55" Count="0" />
+      <LineId Id="57" Count="1" />
+      <LineId Id="26" Count="17" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.StopAbsMove">
+      <LineId Id="5" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="6" Count="0" />
+      <LineId Id="11" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.StopForceControl">
+      <LineId Id="12" Count="6" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="21" Count="2" />
+      <LineId Id="19" Count="1" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="32" Count="0" />
+      <LineId Id="34" Count="0" />
+    </LineIds>
+    <LineIds Name="IntegratedDrive.StopJog">
+      <LineId Id="6" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="10" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

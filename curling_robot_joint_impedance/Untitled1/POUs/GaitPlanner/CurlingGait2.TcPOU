@@ -1,0 +1,2161 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="CurlingGait2" Id="{bd77105f-ede7-4b4b-8a3b-40627ecac0c5}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK CurlingGait2
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	tTotalAll     : LREAL := 5000;
+	
+	// robot geometrical parameters
+	hip_pos : ARRAY[0..5, 0..2] OF LREAL := [-0.369,  -0.125, 0,
+                                             0,  -0.28, 0,
+                                             0.36, -0.125, 0,
+                                             0.36, 0.125, 0,
+											 0,0.28,0,
+											 -0.369,0.125,0];
+
+	leg_index_mapping : ARRAY[0..5] OF INT := [1, 2, 3, 4,5,6];
+	Rleg : ARRAY[0..5] OF Mat3;
+	
+	gait_cycle : UDINT := 0;
+	quit_flag : BOOL := FALSE;
+	
+	joint_ref_pos_init : ARRAY[0..5] OF Vec3;
+	jointPosLast   : ARRAY[0..5, 0..2] OF LREAL; 
+	
+	body_ref_pos_init : Vec3;
+	body_ref_ang_init : Vec3;
+    leg_ref_pos_init : ARRAY[0..5] OF Vec3;
+	leg_ref_pos_init_wrt_hip : ARRAY[0..5] OF Vec3;
+
+	body_ref_pos : Vec3;
+	body_ref_ang : Vec3;
+	body_ref_angvel:vec3;
+    leg_ref_pos : ARRAY[0..5] OF Vec3;
+	leg_ref_pos_wrt_hip : ARRAY[0..5] OF Vec3;
+	body_ref_pos_enter : Vec3;
+	body_ref_ang_enter : Vec3;
+    leg_ref_pos_enter : ARRAY[0..5] OF Vec3;
+	leg_ref_pos_wrt_hip_enter : ARRAY[0..5] OF Vec3;
+	
+	body_ref_pos_next : Vec3;
+	body_ref_ang_next : Vec3;
+    leg_ref_pos_next : ARRAY[0..5] OF Vec3;
+	leg_ref_pos_next_wrt_hip : ARRAY[0..5] OF Vec3;
+	leg_ref_vel_next_wrt_hip : ARRAY[0..5] OF Vec3;
+	
+	// output test
+	joint_ref_pos   : ARRAY[0..5] OF Vec3;
+	joint_ref_vel   : ARRAY[0..5] OF Vec3;
+	
+	jointPosTarget  : ARRAY[0..5, 0..2] OF LREAL; 
+	jointVelTarget  : ARRAY[0..5, 0..2] OF LREAL;  
+	jointFceTarget  : ARRAY[0..5, 0..2] OF LREAL;  
+	
+	pvt, pvtDot : LREAL;
+	
+	fbRotmat : RotM;
+	fbGetPivot  : GetPivot;
+	delta_t:LREAL :=0.0025;//sample time
+	
+	isFinished : BOOL := FALSE;
+	
+	//target value from visual system
+	adjust_angle_rad:LREAL:=0;//unit:rad
+	adjust_angle_actual_rad:LREAL:=0;//unit:rad
+	target_vel:LREAL:=0;//unit:m/s
+	stone_rot_vel:LREAL:=0;//unit:rad/s
+	
+	//common variable
+	sum_height : LREAL := 0;
+	fbElipseInterpolation:ElipseInterpolation;
+	fbHermitInterpolation:HermitInterpolation;
+	Mapping14:ARRAY[0..1] OF INT:=[1,4];
+	Mapping05:ARRAY[0..1] OF INT:=[0,5];
+	Mapping23:ARRAY[0..1] OF INT:=[2,3];
+	body_target_pos: Vec3;
+	
+	//state machine 
+	state:UINT;
+	Ready:UINT:=1;//init state
+	BlegCenter:UINT:=2; 
+	MlegRollA:UINT:=3;
+	FlegRotA:UINT:=4;
+	ReduceHeight:UINT:=5;
+	MlegRollB:UINT:=6;
+	StoneRot:UINT:=7;
+	RoughTuning:UINT:=8;
+	FineTuning:UINT:=9;
+	LiftMleg:UINT:=10;
+	SpeedUp:UINT:=11;
+	Slide:UINT:=12;
+	PushReleaseBall:UINT:=13;
+	SpeedDown:UINT:=14;
+	MlegRollC:UINT:=15;
+	AddHeight:UINT:=16;
+	FlegRotB:UINT:=17;
+	CurlingFinished:UINT:=18;
+	RecoveryReady:UINT:=18;
+	
+	//contol button
+	RequireMlegRollA:BOOL:=FALSE;
+	RequireBlegCenter:BOOL:=FALSE;
+	RequireFlegRotA:BOOL:=FALSE;
+	RequireReduceHeight:BOOL:=FALSE;	
+	RequireMlegRollB:BOOL:=FALSE;	
+	RequireStoneRot:BOOL:=FALSE;		
+	RequireRoughTuning:BOOL:=FALSE;
+	RequireFineTuning:BOOL:=FALSE;
+	RequireLiftMleg:BOOL:=FALSE;
+	RequireSpeedUp:BOOL:=FALSE;
+	RequireSlide:BOOL:=FALSE;
+	RequirePushReleaseBall:BOOL:=FALSE;
+	RequireSpeedDown:BOOL:=FALSE;
+	RequireMlegRollC:BOOL:=FALSE;
+	RequireAddHeight:BOOL:=FALSE;
+	RequireFlegRotB:BOOL:=FALSE;
+	RequireRecoveryReady:BOOL:=FALSE;
+	
+	IsReady:BOOL:=FALSE;
+	IsMlegRollA:BOOL:=FALSE;
+	IsBlegCenter:BOOL:=FALSE;
+	IsFlegRotA:BOOL:=FALSE;
+	IsReduceHeight:BOOL:=FALSE;	
+	IsMlegRollB:BOOL:=FALSE;	
+	IsStoneRot:BOOL:=FALSE;		
+	IsRoughTuning:BOOL:=FALSE;
+	IsFineTuning:BOOL:=FALSE;
+	IsLiftMleg:BOOL:=FALSE;
+	IsSpeedUp:BOOL:=FALSE;
+	IsSlide:BOOL:=FALSE;
+	IsPushReleaseBall:BOOL:=FALSE;
+	IsSpeedDown:BOOL:=FALSE;
+	IsMlegRollC:BOOL:=FALSE;
+	IsAddHeight:BOOL:=FALSE;
+	IsFlegRotB:BOOL:=FALSE;
+	IsCurlingFinished:BOOL:=FALSE;
+	IsRecoveryReady:BOOL:=FALSE;
+
+	ReadyFinished:BOOL:=FALSE;
+	MlegRollAFinished:BOOL:=FALSE;
+	BlegCenterFinished:BOOL:=FALSE;
+	FlegRotAFinished:BOOL:=FALSE;
+	ReduceHeightFinished:BOOL:=FALSE;
+	MlegRollBFinished:BOOL:=FALSE;
+	StoneRotFinished:BOOL:=FALSE;
+	RoughTuningFinished:BOOL:=FALSE;
+	FineTuningFinished:BOOL:=FALSE;
+	LiftMlegFinished:BOOL:=FALSE;
+	SpeedUpFinished:BOOL:=FALSE;
+	SlideFinished:BOOL:=FALSE;
+	PushReleaseBallFinished:BOOL:=FALSE;
+	SpeedDownFinished:BOOL:=FALSE;
+	MlegRollCFinished:BOOL:=FALSE;
+	AddHeightFinished:BOOL:=FALSE;
+	FlegRotBFinished:BOOL:=FALSE;
+	RecoveryReadyFinished:BOOL:=FALSE;
+	CurlingGaitFinished: BOOL:=FALSE;
+	
+	EnterMlegRollACount:UDINT;
+	EnterBlegCenterCount:UDINT;
+	EnterFlegRotACount:UDINT;
+	EnterReduceHeightCount:UDINT;
+	EnterMlegRollBCount:UDINT;
+	EnterStoneRotCount:UDINT;
+	EnterRoughTuningCount:UDINT;
+	EnterFineTuningCount:UDINT;
+	EnterLiftMlegCount:UDINT;
+	EnterSpeedUpCount:UDINT;
+	EnterSlideCount:UDINT;
+	EnterPushReleaseBallCount:UDINT;
+	EnterSpeedDownCount:UDINT;
+	EnterMlegRollCCount:UDINT;
+	EnterAddHeightCount:UDINT;
+	EnterFlegRotBCount:UDINT;
+	EnterRecoveryReadyCount:UDINT;
+		
+	//BlegCenter
+	BlegCenter_BJntStart:ARRAY[0..1] OF vec3;
+	BlegCenter_BPosWrtHip:ARRAY[0..1] OF vec3;
+	BlegCenter_BJntRef:ARRAY[0..1] OF vec3;
+	BlegCenterRetractTime:LREAL:=2;
+	BlegCenterExtendTime:LREAL:=3;
+	
+	//MlegRollA
+	MlegRollA_MJntStart:ARRAY[0..1] OF vec3;
+	MlegRollA_MPosWrtHip:ARRAY[0..1] OF vec3;
+	MlegRollA_MJntRef:ARRAY[0..1] OF vec3;
+	MlegRollATime:LREAL:=3;
+	
+	//FlegRotA
+	FlegRotA_FJntStart:ARRAY[0..1] OF vec3;
+	FlegRotA_FPosWrtHip:ARRAY[0..1] OF vec3;
+	FlegRotA_FJntRef:ARRAY[0..1] OF vec3;
+	FlegRotATime:LREAL:=3;
+	
+	//ReduceHeight
+	ReduceHeight_FJntRef:ARRAY[0..1] OF vec3;
+	ReduceHeight_FPosWrtHip:ARRAY[0..1] OF vec3;
+	ReduceHeightTime:LREAL:=3;
+	targetHeight:LREAL:=0.1797;//need be calibrated
+	
+	//MlegRollB
+	MlegRollB_MJntStart:ARRAY[0..1] OF vec3;
+	MlegRollB_MPosWrtHip:ARRAY[0..1] OF vec3;
+	MlegRollB_MJntRef:ARRAY[0..1] OF vec3;
+	MlegRollBTime:LREAL:=3;
+	
+	//StoneRot
+	StoneRot_FJntStart:ARRAY[0..1] OF vec3;
+	StoneRot_FPosWrtHip:ARRAY[0..1] OF vec3;
+	StoneRot_FJntRef:ARRAY[0..1] OF vec3;
+	StoneGripTime:LREAL:=3;
+	StoneRotSubState:ARRAY [0..1] OF BOOL:=[FALSE,FALSE];
+	StoneRotTime:LREAL:=5;
+	
+	//RoughTuning
+	RotCenter1:vec3;
+	BodyPosStart:vec3;
+	BodyAngStart:vec3;
+	BodyPoseEnd:vec3;
+	BodyAngEnd:vec3;
+	RoughTuningTime:LREAL:=3;
+	RoughTuningExtractTime:LREAL:=2;
+	RoughTuningExtendTime:LREAL:=2;
+	RoughTuning_FJntRef:ARRAY[0..1] OF vec3;
+	RoughTuning_FPosWrtHip:ARRAY[0..1] OF vec3;
+	RoughTuning_MJntStart:ARRAY[0..1] OF vec3;
+	RoughTuning_MJntRef:ARRAY[0..1] OF vec3;
+	RoughTuning_MPosWrtHip:ARRAY[0..1] OF vec3;
+	RoughTuning_legPosEnterExtract:ARRAY[0..5] OF vec3;
+	
+	//FineTuning
+	RotCenter2:vec3;
+	FineTuning_FJntRef:ARRAY[0..1] OF vec3;
+	FineTuning_FPosWrtHip:ARRAY[0..1] OF vec3;
+	FineTuningBodyPos:vec3;
+	FineTuningBodyAng:vec3;
+	
+	//LiftMleg
+	LiftMleg_MJntStart:ARRAY[0..1] OF vec3;
+	LiftMleg_MJntRef:ARRAY[0..1] OF vec3;
+	LiftMleg_MPosWrtHip:ARRAY[0..1] OF vec3;
+	LiftMlegTime:LREAL:=2;
+	
+	//SpeedUp
+	SpeedUpSubState:UINT:=0;
+	SpeedUpAS:UINT:=1;//acceleration
+	SpeedUpCS:UINT:=2;//constant velocity
+	SpeedUpDS:UINT:=3;//deceleration velocity
+	SpeedUpSS:UINT:=4;//stop
+	 
+	Distance_x_AS:LREAL:=0.3;// acceleration distance in x direction
+	Distance_x_DS:LREAL:=0.15;// deceleration distance in x direction
+	Distance_y_DS:LREAL:=0.1;// deceleration distance in y direction
+	Time_AS:LREAL:=0.3;//acceleration time
+	Time_CS:LREAL:=0.05;//constant time
+	Time_DS:LREAL:=0.2;//deceleration time
+	 
+	EnterSpeedUpASCount:UDINT;
+	EnterSpeedUpCSCount:UDINT;
+	EnterSpeedUpDSCount:UDINT;
+	EnterSpeedUpSPCount:UDINT;
+	
+	SpeedUp_MJntRef:ARRAY[0..1] OF vec3;
+	SpeedUp_MPosWrtHip:ARRAY[0..1] OF vec3;
+	SpeedUp_FJntRef:ARRAY[0..1] OF vec3;
+	SpeedUp_FPosWrtHip:ARRAY[0..1] OF vec3;
+	
+	body_ref_pos_wrt_body:vec3;
+	
+	//Slide
+	
+	//PushReleaseBall
+	PushReleaseBall_FJntStart:ARRAY[0..1] OF vec3;
+	PushReleaseBall_FPosStartWrtHip:ARRAY[0..1] OF vec3;
+	PushReleaseBall_FJntRef:ARRAY[0..1] OF vec3;
+	PushReleaseBall_FPosWrtHip:ARRAY[0..1] OF vec3;
+	PushTime:LREAL:=0.2;
+	PushDistance:LREAL:=0.2;
+	DecVelTime:LREAL:=0.1;
+	DecVelDistance:LREAL:=0.1;
+	PushVelocity:LREAL:=0.5;
+	ReleaseTime:LREAL:=0.25;
+	
+	//SpeedDown
+	SpeedDownTime:LREAL:=2;
+	SpeedDown_MJntStart:ARRAY[0..1] OF vec3;
+	SpeedDown_MJntRef:ARRAY[0..1] OF vec3;
+	SpeedDown_MPosWrtHip:ARRAY[0..1] OF vec3;	
+	
+	//MlegRollC
+	MlegRollC_MJntStart:ARRAY[0..1] OF vec3;
+	MlegRollC_MPosWrtHip:ARRAY[0..1] OF vec3;
+	MlegRollC_MJntRef:ARRAY[0..1] OF vec3;
+	MlegRollCTime:LREAL:=3;
+	
+	//AddHeight
+	AddHeightTime:LREAL:=5;
+	AddHeight_FJntStart:ARRAY[0..1] OF vec3;
+	AddHeight_FPosWrtHip:ARRAY[0..1] OF vec3;
+	
+	//FlegRotB
+	FlegRotBTime:LREAL:=2;
+	FlegRotB_FJntStart:ARRAY[0..1] OF vec3;
+	FlegRotB_FJntRef:ARRAY[0..1] OF vec3;
+	FlegRotB_FPosWrtHip:ARRAY[0..1] OF vec3;	
+	
+	
+	
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="DoPlanning" Id="{cd8d6f9b-33b3-41c9-a220-70cd33fb8e18}">
+      <Declaration><![CDATA[METHOD PUBLIC DoPlanning : BOOL
+VAR_INPUT
+	count : UDINT;
+END_VAR
+VAR
+	i, j  : INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF count = 0 THEN
+	isFinished := FALSE;
+	Initialize();
+END_IF
+StateMachine();
+TrjPlanning();
+
+IF quit_flag THEN
+	isFinished := TRUE;
+	quit_flag := FALSE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Initialize" Id="{cf93d3d5-0e37-438a-8a84-8d4d7d971f06}">
+      <Declaration><![CDATA[METHOD PUBLIC Initialize : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	i, j : INT;
+	
+	leg_pos    : ARRAY[0..2] OF LREAL;
+	
+	Rb : Mat3;
+	hip_pos_j  : Vec3;
+	leg_pos_wrt_com : Vec3;
+	
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Rleg[0]:=SetMat3(1,0,0,0,0,-1,0,1,0);
+Rleg[1]:=SetMat3(-1,0,0,0,0,1,0,1,0,);
+Rleg[2]:=SetMat3(-1,0,0,0,0,1,0,1,0);
+Rleg[3]:=SetMat3(-1,0,0,0,0,1,0,1,0);
+Rleg[4]:=SetMat3( -1,0,0,0,0,1,0,1,0);
+Rleg[5]:=SetMat3(1,0,0,0,0,-1,0,1,0);
+
+state:=Ready;
+ReadyFinished:=true;
+quit_flag  := FALSE;
+gait_cycle := 0;
+
+// control button for each state, need be commented out at actual environment
+RequireMlegRollA:=FALSE;
+RequireBlegCenter:=FALSE;
+RequireFlegRotA:=FALSE;
+RequireReduceHeight:=FALSE;	
+RequireMlegRollB:=FALSE;	
+RequireStoneRot:=FALSE;		
+RequireRoughTuning:=FALSE;
+RequireFineTuning:=FALSE;
+RequireLiftMleg:=FALSE;
+RequireSpeedUp:=FALSE;
+RequireSlide:=FALSE;
+RequirePushReleaseBall:=FALSE;
+RequireSpeedDown:=FALSE;
+RequireMlegRollC:=FALSE;
+RequireAddHeight:=FALSE;
+RequireFlegRotB:=FALSE;
+RequireRecoveryReady:=FALSE;
+
+MlegRollAFinished:=FALSE;
+BlegCenterFinished:=FALSE;
+FlegRotAFinished:=FALSE;
+ReduceHeightFinished:=FALSE;
+MlegRollBFinished:=FALSE;
+StoneRotFinished:=FALSE;
+RoughTuningFinished:=FALSE;
+FineTuningFinished:=FALSE;
+LiftMlegFinished:=FALSE;
+SpeedUpFinished:=FALSE;
+SlideFinished:=FALSE;
+PushReleaseBallFinished:=FALSE;
+SpeedDownFinished:=FALSE;
+MlegRollCFinished:=FALSE;
+AddHeightFinished:=FALSE;
+FlegRotBFinished:=FALSE;
+RecoveryReadyFinished:=FALSE;
+CurlingGaitFinished:=FALSE;
+
+// bodyRot
+delta_t:=1.0/gvl.SampleRate;//sample time
+
+SetTargetValue(GVL.adjust_angle_degree,GVL.target_vel,GVL.stone_rot_vel);
+IsReady:=true;
+
+FOR i := 0 TO 5 DO
+	FOR j := 0 TO 2 DO
+		joint_ref_pos_init[i].data[j] := gvl.jntActualPos[i, j];
+		jointPosLast[i,j]:=joint_ref_pos_init[i].data[j];
+	END_FOR
+END_FOR
+
+sum_height := 0;
+FOR j := 0 TO 5 DO
+	// FK
+	gvl.legCtrl[j].ForwardKinetics(motorAngles := joint_ref_pos_init[j].data, legIndex:=j, tipPosition => leg_pos);
+	leg_ref_pos_init_wrt_hip[j] := SetVec3(leg_pos[0], leg_pos[1], leg_pos[2]);
+	sum_height := sum_height - leg_ref_pos_init_wrt_hip[j].data[1];
+END_FOR
+body_ref_pos_init := SetVec3(0, 0, sum_height/6.0);
+body_ref_ang_init := SetVec3(0, 0, 0);                            
+
+FOR j := 0 TO 5 DO
+	fbRotMat(yaw := body_ref_ang_init.data[2],
+             pitch := body_ref_ang_init.data[1],
+             roll := body_ref_ang_init.data[0],
+             rm => Rb );
+	hip_pos_j := SetVec3(hip_pos[j, 0], hip_pos[j, 1], hip_pos[j, 2]);
+	leg_pos_wrt_com := VecAdd(MatMulVec(Rleg[j], leg_ref_pos_init_wrt_hip[j]), hip_pos_j);
+    leg_ref_pos_init[j] := VecAdd(body_ref_pos_init, MatMulVec(Rb, leg_pos_wrt_com));
+END_FOR
+
+body_ref_pos := body_ref_pos_init;
+body_ref_ang := body_ref_ang_init;
+leg_ref_pos := leg_ref_pos_init;
+leg_ref_pos_wrt_hip := leg_ref_pos_init_wrt_hip;
+
+FOR i := 0 TO 5 DO
+	FOR j := 0 TO 2 DO
+		jointPosTarget[i, j] := joint_ref_pos_init[i].data[j];
+		jointVelTarget[i, j] := 0;
+		jointFceTarget[i, j] := 0;
+	END_FOR
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="isStone" Id="{c33f69de-016c-4ede-b2f3-1116549ed0a3}">
+      <Declaration><![CDATA[METHOD PUBLIC isStone : BOOL
+VAR_INPUT
+	legIndex:INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF ABS(gvl.tipActualFce[legIndex,2])>10 THEN //10 need be calibrated
+	isStone:=TRUE;
+ELSE
+	isStone:=FALSE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetTargetValue" Id="{7bf1443d-ad0a-4137-a8ea-0b599c41014e}">
+      <Declaration><![CDATA[METHOD PUBLIC SetTargetValue : BOOL
+VAR_INPUT
+	in_adjust_angle_degree:LREAL:=0;//unit:degree
+	in_target_vel:LREAL:=0;//unit:m/s
+	in_stone_rot_vel:LREAL:=0;//unit:rpm
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[adjust_angle_rad:=in_adjust_angle_degree*pi/180;
+target_vel:=in_target_vel;
+stone_rot_vel:=in_stone_rot_vel/60*2*pi;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StateMachine" Id="{cc6471d9-8d5a-4b28-8de6-dc198f349638}">
+      <Declaration><![CDATA[METHOD PUBLIC StateMachine : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	i: INT;
+	j: INT;
+	RotRadius: LREAL;
+	
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF state=ready AND RequireBlegCenter=TRUE THEN
+	state:=BlegCenter;
+	IsReady:=FALSE;
+	IsBlegCenter:=TRUE;
+	RequireBlegCenter:=FALSE;
+	body_ref_pos_enter := body_ref_pos_init;
+	body_ref_ang_enter := body_ref_ang_init;
+	leg_ref_pos_enter := leg_ref_pos_init;
+	EnterBlegCenterCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			BlegCenter_BJntStart[i].data[j]:=jointPosLast[Mapping05[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=BlegCenter AND BlegCenterFinished=TRUE AND RequireMlegRollA=TRUE THEN
+	state:=MlegRollA;
+	IsBlegCenter:=FALSE;
+	IsMlegRollA:=TRUE;
+	requireMlegRollA:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterMlegRollACount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			MlegRollA_MJntStart[i].data[j]:=jointPosLast[Mapping14[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=MlegRollA AND MlegRollAFinished=TRUE AND RequireFlegRotA=TRUE THEN
+	state:=FlegRotA;
+	IsMlegRollA:=FALSE;
+	IsFlegRotA:=TRUE;
+	requireFlegRotA:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterFlegRotACount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			FlegRotA_FJntStart[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=FlegRotA AND FlegRotAFinished=TRUE AND RequireReduceHeight=TRUE THEN
+	state:=ReduceHeight;
+	IsFlegRotA:=FALSE;
+	IsReduceHeight:=TRUE;
+	requireReduceHeight:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterReduceHeightCount:=gait_cycle;
+	body_target_pos:=body_ref_pos_enter;
+	body_target_pos.data[2]:=targetHeight;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			ReduceHeight_FJntRef[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=ReduceHeight AND ReduceHeightFinished=TRUE AND RequireMlegRollB=TRUE THEN
+	state:=MlegRollB;
+	IsReduceHeight:=FALSE;
+	IsMlegRollB:=TRUE;
+	requireMlegRollB:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterMlegRollBCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			MlegRollB_MJntStart[i].data[j]:=jointPosLast[Mapping14[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=MlegRollB AND MlegRollBFinished=TRUE AND RequireStoneRot=TRUE THEN
+	state:=StoneRot;
+	IsMlegRollB:=FALSE;
+	IsStoneRot:=TRUE;
+	requireStoneRot:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterStoneRotCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			StoneRot_FJntStart[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=StoneRot AND StoneRotFinished=TRUE AND RequireRoughTuning=TRUE THEN
+	state:=RoughTuning;
+	IsStoneRot:=FALSE;
+	IsRoughTuning:=TRUE;
+	requireRoughTuning:=FALSE;	
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterRoughTuningCount:=gait_cycle;
+	FOR i:=0 TO 2 DO
+		RotCenter1.data[i]:=0.5*(leg_ref_pos_enter[0].data[i]+leg_ref_pos_enter[5].data[i]);
+	END_FOR
+	BodyPosStart:=body_ref_pos_enter;
+	BodyAngStart:=body_ref_ang_enter;
+	RotRadius:=SQRT((BodyPosStart.data[0]-RotCenter1.data[0])*(BodyPosStart.data[0]-RotCenter1.data[0])+(BodyPosStart.data[1]-RotCenter1.data[1])*(BodyPosStart.data[1]-RotCenter1.data[1]));
+	BodyPoseEnd.data[0]:=RotCenter1.data[0]+RotRadius*COS(adjust_angle_rad);
+	BodyPoseEnd.data[1]:=RotCenter1.data[1]+RotRadius*SIN(adjust_angle_rad);
+	BodyPoseEnd.data[2]:=body_ref_pos_enter.data[2];
+	BodyAngEnd:=BodyAngStart;
+	BodyAngEnd.data[2]:=BodyAngStart.data[2]+adjust_angle_rad;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			RoughTuning_FJntRef[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=RoughTuning AND RoughTuningFinished=TRUE AND RequireFineTuning=TRUE THEN
+	state:=FineTuning;
+	IsRoughTuning:=FALSE;
+	IsFineTuning:=TRUE;
+	requireFineTuning:=FALSE;	
+	SetTargetValue(GVL.adjust_angle_degree,GVL.target_vel,GVL.stone_rot_vel);
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterFineTuningCount:=gait_cycle;
+	FOR i:=0 TO 2 DO
+		RotCenter2.data[i]:=0.5*(leg_ref_pos_enter[0].data[i]+leg_ref_pos_enter[5].data[i]);
+	END_FOR
+
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			FineTuning_FJntRef[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+	END_FOR	
+ELSIF state=FineTuning AND FineTuningFinished=TRUE AND RequireLiftMleg=TRUE THEN
+	state:=LiftMleg;
+	IsFineTuning:=FALSE;
+	IsLiftMleg:=TRUE;
+	requireLiftMleg:=FALSE;	
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterLiftMlegCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			LiftMleg_MJntStart[i].data[j]:=jointPosLast[Mapping14[i],j];
+		END_FOR
+	END_FOR	
+ELSIF state=LiftMleg AND LiftMlegFinished=TRUE AND RequireSpeedUp=TRUE THEN
+	state:=SpeedUp;
+	IsLiftMleg:=FALSE;
+	IsSpeedUp:=TRUE;
+	requireSpeedUp:=FALSE;	
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterSpeedUpCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			SpeedUp_MJntRef[i].data[j]:=jointPosLast[Mapping14[i],j];
+			SpeedUp_FJntRef[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+	END_FOR		
+	SpeedUpSubState:=SpeedUpAS;
+	EnterSpeedUpASCount:=gait_cycle;
+ELSIF state=SpeedUp AND SpeedUpFinished=TRUE AND RequireSlide=TRUE THEN
+	state:=Slide;
+	IsSpeedUp:=FALSE;
+	IsSlide:=TRUE;
+	requireSlide:=FALSE;	
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterSlideCount:=gait_cycle;
+ELSIF state=Slide AND SlideFinished=TRUE AND RequirePushReleaseBall=TRUE THEN
+	state:=PushReleaseBall;
+	IsSlide:=FALSE;
+	IsPushReleaseBall:=TRUE;
+	RequirePushReleaseBall:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterPushReleaseBallCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			PushReleaseBall_FJntStart[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+		gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=PushReleaseBall_FJntStart[i].data , legIndex:=Mapping23[i] , tipPosition=>PushReleaseBall_FPosStartWrtHip[i].data );
+	END_FOR
+ELSIF state=PushReleaseBall AND PushReleaseBallFinished=TRUE AND RequireSpeedDown=TRUE THEN
+	state:=SpeedDown;
+	IsPushReleaseBall:=FALSE;
+	IsSpeedDown:=TRUE;
+	RequireSpeedDown:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterSpeedDownCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			SpeedDown_MJntStart[i].data[j]:=jointPosLast[Mapping14[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=SpeedDown AND SpeedDownFinished=TRUE AND RequireMlegRollC=TRUE THEN
+	state:=MlegRollC;
+	IsSpeedDown:=FALSE;
+	IsMlegRollC:=TRUE;
+	RequireSpeedDown:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterMlegRollCCount:=gait_cycle;	
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			MlegRollC_MJntStart[i].data[j]:=jointPosLast[Mapping14[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=MlegRollC AND MlegRollCFinished=TRUE AND RequireAddHeight=TRUE THEN	
+	state:=AddHeight;
+	RequireAddHeight:=FALSE;
+	IsMlegRollC:=FALSE;
+	IsAddHeight:=TRUE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterAddHeightCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			AddHeight_FJntStart[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+	END_FOR
+	body_target_pos:=body_ref_pos_enter;
+	body_target_pos.data[2]:=sum_height/6.0;
+ELSIF state=AddHeight AND AddHeightFinished=TRUE AND RequireFlegRotB=TRUE THEN	
+	state:=FlegRotB;
+	IsAddHeight:=FALSE;
+	IsFlegRotB:=TRUE;
+	RequireFlegRotB:=FALSE;
+	body_ref_pos_enter := body_ref_pos;
+	body_ref_ang_enter := body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	EnterFlegRotBCount:=gait_cycle;
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			FlegRotB_FJntStart[i].data[j]:=jointPosLast[Mapping23[i],j];
+		END_FOR
+	END_FOR
+ELSIF state=FlegRotB AND FlegRotBFinished=TRUE THEN	
+	IsFlegRotB:=FALSE;
+	IsCurlingFinished:=TRUE;
+	state:=CurlingFinished;
+	CurlingGaitFinished:=TRUE;
+	quit_flag:=TRUE;
+END_IF
+
+
+
+
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning" Id="{00ff7297-1408-4eae-9c3b-06192cabe60c}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	tr : LREAL;
+	i, j : INT;
+	Rb : Mat3;
+	hip_pos_j : Vec3;
+	leg_ref_pos_wrt_com_j : Vec3;
+	tmp : Vec3;
+	tip_pos, tip_vel : Vec3;
+	
+	body_ref_pos_start : Vec3;
+	body_ref_pos_end : Vec3;
+	jointTmpPosLast: ARRAY[0..2] OF LREAL;
+	body_ref_ang_start: Vec3;
+	leg_ref_pos_start: ARRAY [0..5] OF Vec3;
+	leg_ref_pos_target: ARRAY [0..5] OF Vec3;
+	body_ref_ang_end: Vec3;
+	Rb_target2: Mat3;
+	Rb_target1: Mat3;
+	leg_ref_pos_end: ARRAY [0..5] OF Vec3;
+	fbElipseInterpolation:ElipseInterpolation;
+	fbHermitInterpolation:HermitInterpolation;
+	holdPos: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[gait_cycle := gait_cycle + 1;
+
+IF state=Ready THEN
+	body_ref_pos := body_ref_pos_init;
+	body_ref_ang := body_ref_ang_init;
+	leg_ref_pos := leg_ref_pos_init;
+	leg_ref_pos_wrt_hip := leg_ref_pos_init_wrt_hip;
+ELSIF state=MlegRollA THEN
+	TrjPlanning_MlegRollA();
+ELSIF state=BlegCenter THEN
+	TrjPlanning_BlegCenter();
+ELSIF state=FlegRotA THEN
+	TrjPlanning_FlegRotA();
+ELSIF state=ReduceHeight THEN
+	TrjPlanning_ReduceHeight();
+ELSIF state=MlegRollB THEN
+	TrjPlanning_MlegRollB();
+ELSIF state=StoneRot THEN
+	TrjPlanning_StoneRot();
+ELSIF state=RoughTuning THEN	
+	TrjPlanning_RoughTuning();
+ELSIF state=FineTuning THEN
+	TrjPlanning_FineTuning();
+ELSIF state=LiftMleg THEN
+	TrjPlanning_LiftMleg();
+ELSIF state=SpeedUp THEN
+	TrjPlanning_SpeedUp();
+ELSIF state=Slide THEN	
+	TrjPlanning_Slide();
+ELSIF state=PushReleaseBall THEN
+	TrjPlanning_PushReleaseBall();
+ELSIF state=SpeedDown THEN	
+	TrjPlanning_SpeedDown();
+ELSIF state=MlegRollC THEN	
+	TrjPlanning_MlegRollC();
+ELSIF state=AddHeight THEN	
+	TrjPlanning_AddHeight();
+ELSIF state=FlegRotB THEN	
+	TrjPlanning_FlegRotB();
+ELSIF state=RecoveryReady THEN	
+	TrjPlanning_RecoveryReady();
+END_IF
+
+// transform TO leg local frame AND DO inverse kinematics
+
+FOR j := 0 TO 5 DO
+	fbRotMat(
+    	yaw := body_ref_ang.data[2], 
+		pitch := body_ref_ang.data[1], 
+		roll := body_ref_ang.data[0], 
+		rm => Rb);
+	hip_pos_j := SetVec3(hip_pos[j, 0], hip_pos[j, 1], hip_pos[j, 2]);
+
+	//leg_ref_pos_wrt_com = Rb' * (leg_ref_pos - body_ref_pos)
+	leg_ref_pos_wrt_com_j := MatMulVec(
+		                         MatTranspose(Rb),
+								 VecAdd(
+									 leg_ref_pos[j],
+									 VecNeg(body_ref_pos)
+                                 )
+                             );
+	// leg_ref_pos_wrt_hip = Rleg' * (leg_ref_pos_wrt_com_j - hip_pos)
+	leg_ref_pos_next_wrt_hip[j] := MatMulVec(
+		                               MatTranspose(Rleg[j]),
+									   VecAdd(
+										   leg_ref_pos_wrt_com_j,
+										   VecNeg(hip_pos_j)
+									   )
+								   );
+								   
+	leg_ref_vel_next_wrt_hip[j] := VecMulNum(VecAdd(leg_ref_pos_next_wrt_hip[j], VecNeg(leg_ref_pos_wrt_hip[j])), DINT_TO_LREAL(gvl.sampleRate));
+END_FOR
+
+
+// mapping to actual joints
+FOR j := 0 TO 5 DO
+	tmp := leg_ref_pos_next_wrt_hip[leg_index_mapping[j]-1];
+	tip_pos := SetVec3(tmp.data[0], tmp.data[1], tmp.data[2]);
+	tmp := leg_ref_vel_next_wrt_hip[leg_index_mapping[j]-1];
+	tip_vel := SetVec3(tmp.data[0], tmp.data[1], tmp.data[2]);
+	FOR i:= 0 TO 2 DO
+		jointTmpPosLast[i]:=jointPosLast[j,i];
+	END_FOR		
+	gvl.legCtrl[j].InversePosAndVel(
+		tipPos := tip_pos.data, 
+		tipVel := tip_vel.data, 
+		refPosLast:=jointTmpPosLast,
+		legIndex:=j,
+		jntPos => joint_ref_pos[j].data, 
+		jntVel => joint_ref_vel[j].data);
+	
+END_FOR
+
+// link to physical outputs
+FOR i := 0 TO 5 DO
+	FOR j := 0 TO 2 DO
+		jointPosTarget[i, j] := joint_ref_pos[i].data[j];
+		jointPosLast[i,j]:=jointPosTarget[i, j] ;
+		jointVelTarget[i, j] := joint_ref_vel[i].data[j];
+		jointFceTarget[i, j] := 0;
+	END_FOR
+END_FOR
+
+// store refs for next loop
+leg_ref_pos_wrt_hip := leg_ref_pos_next_wrt_hip;
+
+IF gait_cycle > tTotalAll * gvl.sampleRate THEN
+	quit_flag := TRUE;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_AddHeight" Id="{ac66d39e-55fb-4db8-8126-9ce9bbd82d58}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_AddHeight : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	tr: LREAL;
+	i: INT;
+	Rb_target1: Mat3;
+	temp:vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF  AddHeightFinished=FALSE AND (gait_cycle-EnterAddHeightCount)<=AddHeightTime*gvl.sampleRate THEN
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterAddHeightCount) / gvl.sampleRate / AddHeightTime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 2 DO
+		body_ref_pos.data[i]:=(1-pvt)*body_ref_pos_enter.data[i]+pvt*body_target_pos.data[i];
+	END_FOR
+	
+	FOR i:=0 TO 1 DO
+		gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=AddHeight_FJntStart[i].data , legIndex:=Mapping23[i] , tipPosition=>AddHeight_FPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm => Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+		leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],AddHeight_FPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+ELSE
+	AddHeightFinished:=TRUE;	
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_BlegCenter" Id="{cd6dc200-8cd3-4218-acf3-cf87ebc3ef48}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_BlegCenter : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	MlegRollA_MJntTarget:ARRAY[0..1,0..2] OF LREAL:=[9.7594*pi/180,188.4432*pi/180,322.1073*pi/180,
+                                                     -9.7594*pi/180,188.4432*pi/180,322.1073*pi/180];//single pedal
+	(*MlegRollA_MJntTarget:ARRAY[0..1,0..2] OF LREAL:=[9.7594*pi/180,188.4432*pi/180,322.1073*pi/180,
+                                                     -9.7594*pi/180,188.4432*pi/180,322.1073*pi/180];//double pedal	*)												 
+	MlegRollA_MJntRetract:ARRAY[0..1,0..2] OF LREAL:=[0,180*pi/180,330*pi/180,
+                                                      0,180*pi/180,330*pi/180];			
+	tTotal:lreal;										 
+	tNow: LREAL;
+	i: INT;
+	j: INT;
+	tr: LREAL;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF BlegCenterFinished=FALSE THEN
+	IF (gait_cycle-EnterBlegCenterCount)<=BlegCenterRetractTime*gvl.sampleRate THEN
+		tr  := UDINT_TO_LREAL(gait_cycle-EnterBlegCenterCount) / gvl.sampleRate / BlegCenterRetractTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);		
+		FOR i:=0 TO 1 DO
+			FOR j:=0 TO 2 DO
+				BlegCenter_BJntRef[i].data[j]:=(1-pvt)*BlegCenter_BJntStart[i].data[j]+pvt*(MlegRollA_MJntRetract[i,j]);
+			END_FOR
+			gvl.legCtrl[Mapping05[i]].ForwardKinetics(motorAngles:=BlegCenter_BJntRef[i].data , legIndex:=Mapping05[i] , tipPosition=>BlegCenter_BPosWrtHip[i].data );
+			fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+			temp.data[0]:=hip_pos[Mapping05[i],0];temp.data[1]:=hip_pos[Mapping05[i],1];temp.data[2]:=hip_pos[Mapping05[i],2];
+			leg_ref_pos[Mapping05[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping05[i]],BlegCenter_BPosWrtHip[i]))),body_ref_pos);
+		END_FOR
+	ELSIF (gait_cycle-EnterBlegCenterCount)<=(BlegCenterRetractTime+BlegCenterExtendTime)*gvl.sampleRate THEN
+		tr  := (UDINT_TO_LREAL(gait_cycle-EnterBlegCenterCount) / gvl.sampleRate -BlegCenterRetractTime)/ BlegCenterExtendTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+		FOR i:=0 TO 1 DO
+			FOR j:=0 TO 2 DO
+				BlegCenter_BJntRef[i].data[j]:=(1-pvt)*MlegRollA_MJntRetract[i,j]+pvt*(MlegRollA_MJntTarget[i,j]);
+			END_FOR
+			gvl.legCtrl[Mapping05[i]].ForwardKinetics(motorAngles:=BlegCenter_BJntRef[i].data , legIndex:=Mapping05[i] , tipPosition=>BlegCenter_BPosWrtHip[i].data );
+			fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+			temp.data[0]:=hip_pos[Mapping05[i],0];temp.data[1]:=hip_pos[Mapping05[i],1];temp.data[2]:=hip_pos[Mapping05[i],2];
+			leg_ref_pos[Mapping05[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping05[i]],BlegCenter_BPosWrtHip[i]))),body_ref_pos);
+		END_FOR
+	ELSE
+		BlegCenterFinished:=TRUE;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_FineTuning" Id="{cbd9a69b-03d1-4fd3-b519-f75bbc2bea2e}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_FineTuning : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	RotRadius: LREAL;
+	adjust_angle_demand_rad:lreal;
+	i: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FineTuningFinished=FALSE THEN
+	adjust_angle_actual_rad:=gvl.fine_adjust_angle_degree*180/pi;
+	IF ABS(adjust_angle_actual_rad)<=0.5*pi/180 THEN
+		adjust_angle_demand_rad:=adjust_angle_actual_rad;
+	ELSIF adjust_angle_actual_rad>0.5*pi/180 THEN
+		adjust_angle_demand_rad:=0.5*pi/180;
+	ELSE
+		adjust_angle_demand_rad:=-0.5*pi/180;
+	END_IF
+	
+	adjust_angle_actual_rad:=0;
+	gvl.fine_adjust_angle_degree:=adjust_angle_actual_rad;
+	
+	
+	RotRadius:=SQRT((body_ref_pos_enter.data[0]-RotCenter2.data[0])*(body_ref_pos_enter.data[0]-RotCenter2.data[0])+(body_ref_pos_enter.data[1]-RotCenter2.data[1])*(body_ref_pos_enter.data[1]-RotCenter2.data[1]));
+	FineTuningBodyPos.data[0]:=RotCenter2.data[0]+RotRadius*COS(adjust_angle_demand_rad);
+	FineTuningBodyPos.data[1]:=RotCenter2.data[1]+RotRadius*SIN(adjust_angle_demand_rad);
+	FineTuningBodyPos.data[2]:=body_ref_pos_enter.data[2];
+	
+	FineTuningBodyAng:=body_ref_ang_enter;
+	FineTuningBodyAng.data[2]:=body_ref_ang_enter.data[2]+adjust_angle_demand_rad;
+	
+	body_ref_ang:=FineTuningBodyAng;
+	body_ref_pos:=FineTuningBodyPos;
+	leg_ref_pos:=leg_ref_pos_enter;
+	FOR i:=0 TO 1 DO
+		gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=FineTuning_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>FineTuning_FPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang.data[2], pitch := body_ref_ang.data[1],roll := body_ref_ang.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+		leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],FineTuning_FPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+	IF ABS(adjust_angle_actual_rad)<=0.25*pi/180 THEN //end criteria
+		FineTuningFinished:=TRUE;
+	END_IF
+END_IF
+
+ ]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_FlegRotA" Id="{68c6c15a-33af-494e-b616-06e8cdebf99f}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_FlegRotA : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	FlegRotA_FJntTarget:ARRAY[0..1,0..2] OF LREAL:=[-90*pi/180,522*pi/180,-188*pi/180,
+                                                     90*pi/180,522*pi/180,-188*pi/180];//prepared position before gripping stone
+													 
+	tr: LREAL;
+	i: INT;
+	j: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FlegRotAFinished=FALSE AND (gait_cycle-EnterFlegRotACount)<=FlegRotATime*gvl.sampleRate THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterFlegRotACount) / gvl.sampleRate / FlegRotATime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			FlegRotA_FJntRef[i].data[j]:=(1-pvt)*FlegRotA_FJntStart[i].data[j]+pvt*(FlegRotA_FJntTarget[i,j]);
+		END_FOR
+		gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=FlegRotA_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>FlegRotA_FPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+		leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],FlegRotA_FPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+ELSE	
+	FlegRotAFinished:=TRUE;
+END_IF	]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_FlegRotB" Id="{0236772c-3c46-48c2-8e89-a5b9d8225847}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_FlegRotB : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	FlegRotB_FJntTarget:ARRAY[0..1,0..2] OF LREAL:=[0,331.45*pi/180,-144*pi/180,
+                                                     0,331.45*pi/180,-144*pi/180];
+	tr: lreal;
+	i: INT;
+	j: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FlegRotBFinished=FALSE AND (gait_cycle-EnterFlegRotBCount)<=FlegRotBTime*gvl.sampleRate THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterFlegRotBCount) / gvl.sampleRate / FlegRotBTime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			FlegRotB_FJntRef[i].data[j]:=(1-pvt)*FlegRotB_FJntStart[i].data[j]+pvt*(FlegRotB_FJntTarget[i,j]);
+		END_FOR
+		gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=FlegRotB_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>FlegRotB_FPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+		leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],FlegRotB_FPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+ELSE	
+	FlegRotBFinished:=TRUE;
+END_IF	]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_LiftMleg" Id="{b8b074e0-8971-44b1-b7f9-066d1a03f0dd}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_LiftMleg : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	tr: LREAL;
+	i: INT;
+	j: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF LiftMlegFinished=FALSE AND (gait_cycle-EnterLiftMlegCount)<=LiftMlegTime*gvl.sampleRate THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterLiftMlegCount) / gvl.sampleRate / LiftMlegTime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 1 DO
+		LiftMleg_MJntRef[i]:=LiftMleg_MJntStart[i];
+		LiftMleg_MJntRef[i].data[2]:=(1-pvt)*LiftMleg_MJntStart[i].data[2]+pvt*(LiftMleg_MJntStart[i].data[2]-5*pi/180);
+	END_FOR
+	gvl.legCtrl[Mapping14[i]].ForwardKinetics(motorAngles:=LiftMleg_MJntRef[i].data , legIndex:=Mapping14[i] , tipPosition=>LiftMleg_MPosWrtHip[i].data );
+	fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+	temp.data[0]:=hip_pos[Mapping14[i],0];temp.data[1]:=hip_pos[Mapping14[i],1];temp.data[2]:=hip_pos[Mapping14[i],2];
+	leg_ref_pos[Mapping14[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping14[i]],LiftMleg_MPosWrtHip[i]))),body_ref_pos);
+ELSE
+	LiftMlegFinished:=TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_MlegRollA" Id="{47f5f1c4-9734-485c-9196-e051b0fa22a3}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_MlegRollA : BOOL
+VAR_INPUT
+	
+END_VAR
+
+VAR
+	MlegRollA_MJntTarget:ARRAY[0..1,0..2] OF LREAL:=[0,565.4886*pi/180,-280.8417*pi/180,
+                                                     0,565.4886*pi/180,-280.8417*pi/180];
+	tr: lreal;
+	i: INT;
+	j: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF MlegRollAFinished=FALSE AND (gait_cycle-EnterMlegRollACount)<=MlegRollATime*gvl.sampleRate THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterMlegRollACount) / gvl.sampleRate / MlegRollATime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			MlegRollA_MJntRef[i].data[j]:=(1-pvt)*MlegRollA_MJntStart[i].data[j]+pvt*(MlegRollA_MJntTarget[i,j]);
+		END_FOR
+		gvl.legCtrl[Mapping14[i]].ForwardKinetics(motorAngles:=MlegRollA_MJntRef[i].data , legIndex:=Mapping14[i] , tipPosition=>MlegRollA_MPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping14[i],0];temp.data[1]:=hip_pos[Mapping14[i],1];temp.data[2]:=hip_pos[Mapping14[i],2];
+		leg_ref_pos[Mapping14[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping14[i]],MlegRollA_MPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+ELSE	
+	MlegRollAFinished:=TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_MlegRollB" Id="{ebf736ec-6ac4-4376-b65c-0e8dd6d06b31}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_MlegRollB : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	MlegRollB_MJntTarget:ARRAY[0..1,0..2] OF LREAL:=[0,331.45*pi/180,-144*pi/180,
+                                                     0,331.45*pi/180,-144*pi/180];
+	tr: lreal;
+	i: INT;
+	j: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF MlegRollBFinished=FALSE AND (gait_cycle-EnterMlegRollBCount)<=MlegRollBTime*gvl.sampleRate THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterMlegRollBCount) / gvl.sampleRate / MlegRollBTime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			MlegRollB_MJntRef[i].data[j]:=(1-pvt)*MlegRollB_MJntStart[i].data[j]+pvt*(MlegRollB_MJntTarget[i,j]);
+		END_FOR
+		gvl.legCtrl[Mapping14[i]].ForwardKinetics(motorAngles:=MlegRollB_MJntRef[i].data , legIndex:=Mapping14[i] , tipPosition=>MlegRollB_MPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping14[i],0];temp.data[1]:=hip_pos[Mapping14[i],1];temp.data[2]:=hip_pos[Mapping14[i],2];
+		leg_ref_pos[Mapping14[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping14[i]],MlegRollB_MPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+ELSE	
+	MlegRollBFinished:=TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_MlegRollC" Id="{3fbc148a-7609-4276-9876-aa256af3d15b}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_MlegRollC : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	MlegRollC_MJntTarget:ARRAY[0..1,0..2] OF LREAL:=[0,565.4886*pi/180,-280.8417*pi/180,
+                                                     0,565.4886*pi/180,-280.8417*pi/180];
+	tr: lreal;
+	i: INT;
+	j: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF MlegRollCFinished=FALSE AND (gait_cycle-EnterMlegRollCCount)<=MlegRollCTime*gvl.sampleRate THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterMlegRollCCount) / gvl.sampleRate / MlegRollCTime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			MlegRollC_MJntRef[i].data[j]:=(1-pvt)*MlegRollC_MJntStart[i].data[j]+pvt*(MlegRollC_MJntTarget[i,j]);
+		END_FOR
+		gvl.legCtrl[Mapping14[i]].ForwardKinetics(motorAngles:=MlegRollC_MJntRef[i].data , legIndex:=Mapping14[i] , tipPosition=>MlegRollC_MPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping14[i],0];temp.data[1]:=hip_pos[Mapping14[i],1];temp.data[2]:=hip_pos[Mapping14[i],2];
+		leg_ref_pos[Mapping14[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping14[i]],MlegRollC_MPosWrtHip[i]))),body_ref_pos);
+	END_FOR	
+ELSE	
+	MlegRollCFinished:=TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_PushReleaseBall" Id="{a6bd6c1b-fbf4-48c2-9172-5ddbffe1b5b0}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_PushReleaseBall : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	PushReleaseBall_FJntTarget:ARRAY[0..1,0..2] OF LREAL:=[-90*pi/180,515*pi/180,-185*pi/180,
+                                                     90*pi/180,515*pi/180,-185*pi/180];//prepared position before gripping stone
+	i: INT;
+	invalid: LREAL;
+	Rb_target1: Mat3;
+	temp: vec3;
+	tr: LREAL;
+	j: INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//push and release method
+IF PushReleaseBallFinished=FALSE THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	FOR i:=0 TO 1 DO
+		IF gait_cycle-EnterPushReleaseBallCount<=PushTime*gvl.sampleRate THEN
+			fbHermitInterpolation(t0:=EnterPushReleaseBallCount*delta_t , T:=PushTime , y0:=PushReleaseBall_FPosStartWrtHip[i].data[0] , 
+			y1:=PushReleaseBall_FPosStartWrtHip[i].data[0]-PushDistance , v0:=0 , v1:=-PushVelocity , tNow:=(gait_cycle-EnterPushReleaseBallCount)* delta_t, 
+			y=> PushReleaseBall_FPosWrtHip[i].data[0], v=>invalid );
+		ELSIF gait_cycle-EnterPushReleaseBallCount<=(PushTime+DecVelTime)*gvl.sampleRate THEN
+			fbHermitInterpolation(t0:=EnterPushReleaseBallCount*delta_t+PushTime , T:=DecVelTime , y0:=PushReleaseBall_FPosStartWrtHip[i].data[0]-PushDistance , 
+			y1:=PushReleaseBall_FPosStartWrtHip[i].data[0]-PushDistance-DecVelDistance , v0:=-PushVelocity , v1:= 0, tNow:=(gait_cycle-EnterPushReleaseBallCount)* delta_t-PushTime, 
+			y=> PushReleaseBall_FPosWrtHip[i].data[0], v=>invalid );	
+		ELSE
+			 PushReleaseBall_FPosWrtHip[i].data[0]:=PushReleaseBall_FPosStartWrtHip[i].data[0]-PushDistance-DecVelDistance;		
+		END_IF
+		PushReleaseBall_FPosWrtHip[i].data[1]:=PushReleaseBall_FPosStartWrtHip[i].data[1];
+		PushReleaseBall_FPosWrtHip[i].data[2]:=PushReleaseBall_FPosStartWrtHip[i].data[2];
+		
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+		leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],PushReleaseBall_FPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+END_IF
+
+IF PushReleaseBallFinished=FALSE AND (gait_cycle-EnterPushReleaseBallCount)=(PushTime+DecVelTime)*gvl.sampleRate THEN
+	PushReleaseBallFinished:=TRUE;
+END_IF
+
+//only release method
+IF PushReleaseBallFinished=FALSE THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterPushReleaseBallCount) / gvl.sampleRate / ReleaseTime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 1 DO
+		FOR j:=0 TO 2 DO
+			PushReleaseBall_FJntRef[i].data[j]:=(1-pvt)*PushReleaseBall_FJntStart[i].data[j]+pvt*(PushReleaseBall_FJntTarget[i,j]);
+		END_FOR
+		gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=PushReleaseBall_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>PushReleaseBall_FPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+		leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],PushReleaseBall_FPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+ELSE	
+	PushReleaseBallFinished:=TRUE;
+END_IF	
+		
+		
+		
+		
+		
+		
+	
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_RecoveryReady" Id="{705b5977-c210-4a3d-ae3f-f6e10cc54cfc}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_RecoveryReady : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_ReduceHeight" Id="{bba4e569-7da9-49ac-90a9-ab937b9b120c}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_ReduceHeight : BOOL
+VAR_INPUT
+	
+END_VAR
+VAR
+	
+	tr: LREAL;
+	i: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF ReduceHeightFinished=FALSE AND (gait_cycle-EnterReduceHeightCount)<=ReduceHeightTime*gvl.sampleRate THEN
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterReduceHeightCount) / gvl.sampleRate / ReduceHeightTime;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 2 DO
+		body_ref_pos.data[i]:=(1-pvt)*body_ref_pos_enter.data[i]+pvt*body_target_pos.data[i];
+	END_FOR
+	FOR i:=0 TO 1 DO
+		gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=ReduceHeight_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>ReduceHeight_FPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+		leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],ReduceHeight_FPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+ELSE
+	ReduceHeightFinished:=TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_RoughTuning" Id="{12341449-5c30-4b67-8440-24ca0a5b142f}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_RoughTuning : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	tr: LREAL;
+	i: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+	RoughTuning_MJntExtend:ARRAY[0..1,0..2] OF LREAL:=[0,331.45*pi/180,-144*pi/180,
+                                                     0,331.45*pi/180,-144*pi/180];
+	RoughTuning_MJntExtract:ARRAY[0..1,0..2] OF LREAL:=[0,340*pi/180,-155*pi/180,
+                                                     0,340*pi/180,-155*pi/180];
+	j: INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF RoughTuningFinished=FALSE AND (gait_cycle-EnterRoughTuningCount)<=(RoughTuningTime+RoughTuningExtractTime+RoughTuningExtendTime)*gvl.sampleRate THEN
+	IF (gait_cycle-EnterRoughTuningCount)<=(RoughTuningTime)*gvl.sampleRate THEN
+		leg_ref_pos:=leg_ref_pos_enter;
+		tr  := UDINT_TO_LREAL(gait_cycle - EnterRoughTuningCount) / gvl.sampleRate /RoughTuningTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);	
+		FOR i:=0 TO 2 DO
+			body_ref_pos.data[i]:=(1-pvt)*BodyPosStart.data[i]+pvt*BodyPoseEnd.data[i];
+			body_ref_ang.data[i]:=(1-pvt)*BodyAngStart.data[i]+pvt*BodyAngEnd.data[i];
+		END_FOR
+		FOR i:=0 TO 1 DO
+			gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=RoughTuning_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>RoughTuning_FPosWrtHip[i].data );
+			fbRotMat(yaw := body_ref_ang.data[2], pitch := body_ref_ang.data[1],roll := body_ref_ang.data[0], rm =>  Rb_target1 );
+			temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+			leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],RoughTuning_FPosWrtHip[i]))),body_ref_pos);
+		END_FOR
+		IF gait_cycle-EnterRoughTuningCount=(RoughTuningTime)*gvl.sampleRate THEN
+			RoughTuning_legPosEnterExtract:=leg_ref_pos;
+			FOR i:=0 TO 1 DO
+				FOR j:=0 TO 2 DO
+					RoughTuning_MJntStart[i].data[j]:=jointPosLast[Mapping14[i],j];
+				END_FOR
+			END_FOR			
+		END_IF
+	ELSIF (gait_cycle-EnterRoughTuningCount)<=(RoughTuningTime+RoughTuningExtractTime)*gvl.sampleRate THEN
+		body_ref_pos:=BodyPoseEnd;
+		body_ref_ang:=BodyAngEnd;
+		leg_ref_pos:=RoughTuning_legPosEnterExtract;
+		tr  := (UDINT_TO_LREAL(gait_cycle - EnterRoughTuningCount) / gvl.sampleRate -RoughTuningTime)/RoughTuningExtractTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);	
+		FOR i:=0 TO 1 DO
+			FOR j:=0 TO 2 DO
+				RoughTuning_MJntRef[i].data[j]:=(1-pvt)*RoughTuning_MJntStart[i].data[j]+pvt*RoughTuning_MJntExtract[i,j];
+			END_FOR
+			gvl.legCtrl[Mapping14[i]].ForwardKinetics(motorAngles:=RoughTuning_MJntRef[i].data , legIndex:=Mapping14[i] , tipPosition=>RoughTuning_MPosWrtHip[i].data );
+			fbRotMat(yaw := body_ref_ang.data[2], pitch := body_ref_ang.data[1],roll := body_ref_ang.data[0], rm =>  Rb_target1 );
+			temp.data[0]:=hip_pos[Mapping14[i],0];temp.data[1]:=hip_pos[Mapping14[i],1];temp.data[2]:=hip_pos[Mapping14[i],2];
+			leg_ref_pos[Mapping14[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping14[i]],RoughTuning_MPosWrtHip[i]))),body_ref_pos);
+			
+			gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=RoughTuning_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>RoughTuning_FPosWrtHip[i].data );
+			temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+			leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],RoughTuning_FPosWrtHip[i]))),body_ref_pos);
+		END_FOR
+	ELSE 			
+		body_ref_pos:=BodyPoseEnd;
+		body_ref_ang:=BodyAngEnd;
+		leg_ref_pos:=RoughTuning_legPosEnterExtract;
+		tr  := (UDINT_TO_LREAL(gait_cycle - EnterRoughTuningCount) / gvl.sampleRate -RoughTuningTime-RoughTuningExtractTime)/RoughTuningExtendTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);	
+		FOR i:=0 TO 1 DO
+			FOR j:=0 TO 2 DO
+				RoughTuning_MJntRef[i].data[j]:=(1-pvt)*RoughTuning_MJntExtract[i,j]+pvt*RoughTuning_MJntExtend[i,j];
+			END_FOR
+			gvl.legCtrl[Mapping14[i]].ForwardKinetics(motorAngles:=RoughTuning_MJntRef[i].data , legIndex:=Mapping14[i] , tipPosition=>RoughTuning_MPosWrtHip[i].data );
+			fbRotMat(yaw := body_ref_ang.data[2], pitch := body_ref_ang.data[1],roll := body_ref_ang.data[0], rm =>  Rb_target1 );
+			temp.data[0]:=hip_pos[Mapping14[i],0];temp.data[1]:=hip_pos[Mapping14[i],1];temp.data[2]:=hip_pos[Mapping14[i],2];
+			leg_ref_pos[Mapping14[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping14[i]],RoughTuning_MPosWrtHip[i]))),body_ref_pos);
+			
+			gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=RoughTuning_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>RoughTuning_FPosWrtHip[i].data );
+			temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+			leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],RoughTuning_FPosWrtHip[i]))),body_ref_pos);
+		END_FOR		
+	END_IF
+ELSE 
+	RoughTuningFinished:=TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_Slide" Id="{90e1c7fc-2cc1-4c66-9a01-a86e2636783b}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_Slide : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF SlideFinished=FALSE THEN
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+
+END_IF
+IF SlideFinished=FALSE AND RequirePushReleaseBall=TRUE THEN
+	SlideFinished:=TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_SpeedDown" Id="{9bdc3b7f-2486-4d22-b1f1-c3a29c99dc14}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_SpeedDown : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	tr: LREAL;
+	i: INT;
+	SpeedDown_MJntTarget:ARRAY[0..1,0..2] OF LREAL:=[0,331.45*pi/180,-144*pi/180,
+                                                     0,331.45*pi/180,-144*pi/180];
+	j: INT;
+	Rb_target1: Mat3;
+	temp: vec3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF SpeedDownFinished=FALSE THEN
+	IF gait_cycle-EnterSpeedDownCount<=SpeedDownTime*gvl.sampleRate THEN
+		body_ref_pos:=body_ref_pos_enter;
+		body_ref_ang:=body_ref_ang_enter;
+		leg_ref_pos:=leg_ref_pos_enter;
+		tr  := UDINT_TO_LREAL(gait_cycle - EnterSpeedDownCount) / gvl.sampleRate / SpeedDownTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+		FOR i:=0 TO 1 DO
+			FOR j:=0 TO 2 DO
+				SpeedDown_MJntRef[i].data[j]:=(1-pvt)*SpeedDown_MJntStart[i].data[j]+pvt*SpeedDown_MJntTarget[i,j];
+			END_FOR
+			gvl.legCtrl[Mapping14[i]].ForwardKinetics(motorAngles:=SpeedDown_MJntRef[i].data , legIndex:=Mapping14[i] , tipPosition=>SpeedDown_MPosWrtHip[i].data );
+			fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+			temp.data[0]:=hip_pos[Mapping14[i],0];temp.data[1]:=hip_pos[Mapping14[i],1];temp.data[2]:=hip_pos[Mapping14[i],2];
+			leg_ref_pos[Mapping14[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping14[i]],SpeedDown_MPosWrtHip[i]))),body_ref_pos);
+			
+			leg_ref_pos[Mapping05[i]].data[2]:=(1-pvt)*leg_ref_pos_enter[Mapping05[i]].data[2]+pvt*(leg_ref_pos_enter[Mapping05[i]].data[2]-Distance_y_DS-0.005);
+		END_FOR
+	ELSE
+		SpeedDownFinished:=TRUE;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_SpeedUp" Id="{902463de-ba29-4f19-99c8-0ccbf565c857}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_SpeedUp : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	invalid: LREAL;
+	Rb_target1: Mat3;
+	i: INT;
+	tr: LREAL;
+	temp: VEC3;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF SpeedUpSubState=SpeedUpAS AND gait_cycle-EnterSpeedUpASCount=Time_AS*gvl.sampleRate THEN
+	SpeedUpSubState:=SpeedUpCS;
+	EnterSpeedUpCSCount:=gait_cycle;
+	body_ref_pos_enter :=body_ref_pos;
+	body_ref_ang_enter:=body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	
+ELSIF SpeedUpSubState=SpeedUpCS AND gait_cycle-EnterSpeedUpCSCount=Time_CS*gvl.sampleRate THEN
+	SpeedUpSubState:=SpeedUpDS;
+	EnterSpeedUpDSCount:=gait_cycle;
+	body_ref_pos_enter :=body_ref_pos;
+	body_ref_ang_enter:=body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+ELSIF SpeedUpSubState=SpeedUpDS AND gait_cycle-EnterSpeedUpDSCount=Time_DS*gvl.sampleRate THEN
+	SpeedUpSubState:=SpeedUpSS;
+	EnterSpeedUpSPCount:=gait_cycle;
+	body_ref_pos_enter :=body_ref_pos;
+	body_ref_ang_enter:=body_ref_ang;
+	leg_ref_pos_enter := leg_ref_pos;
+	SpeedUpFinished:=TRUE;
+	RequireSlide:=TRUE;
+END_IF
+
+body_ref_pos:=body_ref_pos_enter;
+body_ref_ang:=body_ref_ang_enter;
+leg_ref_pos:=leg_ref_pos_enter;
+
+IF SpeedUpSubState=SpeedUpAS AND gait_cycle-EnterSpeedUpASCount<=Time_AS*gvl.sampleRate THEN
+	fbHermitInterpolation(t0:=EnterSpeedUpASCount*delta_t , T:=Time_AS , y0:=0 , 
+		y1:=Distance_x_AS , v0:=0 , v1:=target_vel , tNow:=(gait_cycle-EnterSpeedUpASCount)* delta_t, 
+		y=> body_ref_pos_wrt_body.data[0], v=>invalid );	
+	body_ref_pos_wrt_body.data[1]:=0;body_ref_pos_wrt_body.data[2]:=0;
+	fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+	body_ref_pos:=VecAdd(body_ref_pos_enter,MatMulVec(Rb_target1,body_ref_pos_wrt_body));
+END_IF
+IF SpeedUpSubState=SpeedUpCS AND gait_cycle-EnterSpeedUpCSCount<=Time_CS*gvl.sampleRate THEN
+	fbHermitInterpolation(t0:=EnterSpeedUpCSCount*delta_t , T:=Time_CS , y0:=0 , 
+		y1:=target_vel*Time_CS , v0:=target_vel , v1:=target_vel , tNow:=(gait_cycle-EnterSpeedUpCSCount)* delta_t, 
+		y=> body_ref_pos_wrt_body.data[0], v=>invalid );
+	body_ref_pos_wrt_body.data[1]:=0;body_ref_pos_wrt_body.data[2]:=0;
+	fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+	body_ref_pos:=VecAdd(body_ref_pos_enter,MatMulVec(Rb_target1,body_ref_pos_wrt_body));
+END_IF
+IF SpeedUpSubState=SpeedUpDS AND gait_cycle-EnterSpeedUpDSCount<=Time_DS*gvl.sampleRate THEN
+	fbHermitInterpolation(t0:=EnterSpeedUpDSCount*delta_t , T:=Time_DS , y0:=0 , 
+		y1:=Distance_x_DS , v0:=target_vel , v1:=0 , tNow:=(gait_cycle-EnterSpeedUpDSCount)* delta_t, 
+		y=> body_ref_pos_wrt_body.data[0], v=>invalid );
+	body_ref_pos_wrt_body.data[1]:=0;body_ref_pos_wrt_body.data[2]:=0;
+	tr  := UDINT_TO_LREAL(gait_cycle - EnterSpeedUpDSCount) / gvl.sampleRate / Time_DS;
+	fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+	FOR i:=0 TO 1 DO
+		leg_ref_pos[Mapping05[i]].data[2]:=(1-pvt)*leg_ref_pos_enter[Mapping05[i]].data[2]+pvt*(leg_ref_pos_enter[Mapping05[i]].data[2]+Distance_y_DS);
+	END_FOR
+END_IF
+IF SpeedUpSubState=SpeedUpAS OR SpeedUpSubState=SpeedUpCS OR SpeedUpSubState=SpeedUpDS THEN
+	FOR i:=0 TO 1 DO
+		gvl.legCtrl[Mapping14[i]].ForwardKinetics(motorAngles:=SpeedUp_MJntRef[i].data , legIndex:=Mapping14[i] , tipPosition=>SpeedUp_MPosWrtHip[i].data );
+		gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=SpeedUp_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>SpeedUp_FPosWrtHip[i].data );
+		fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+		temp.data[0]:=hip_pos[Mapping14[i],0];temp.data[1]:=hip_pos[Mapping14[i],1];temp.data[2]:=hip_pos[Mapping14[i],2];
+		leg_ref_pos[Mapping14[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping14[i]],SpeedUp_MPosWrtHip[i]))),body_ref_pos);
+		leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],SpeedUp_FPosWrtHip[i]))),body_ref_pos);
+	END_FOR
+END_IF
+
+
+
+
+
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrjPlanning_StoneRot" Id="{51c1b473-1f14-43e7-af53-f54506ae89c0}">
+      <Declaration><![CDATA[METHOD PUBLIC TrjPlanning_StoneRot : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	StoneRot_FJntTarget:ARRAY[0..1,0..2] OF LREAL:=[-90*pi/180,524*pi/180,-190*pi/180,
+                                                     90*pi/180,524*pi/180,-190*pi/180];
+													 
+	tr: LREAL;
+	i: INT;
+	Rb_target1: Mat3;	
+	temp:vec3;										 
+	j: INT;
+	noPlanning: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR i:=0 TO 1 DO
+	IF StoneRotSubState[i]=FALSE AND isStone(Mapping23[i]) THEN
+		StoneRotSubState[i]:=TRUE;
+		leg_ref_pos_enter[Mapping23[i]]:=leg_ref_pos[Mapping23[i]];
+	END_IF
+END_FOR
+FOR i:=0 TO 1 DO
+	body_ref_pos:=body_ref_pos_enter;
+	body_ref_ang:=body_ref_ang_enter;
+	leg_ref_pos:=leg_ref_pos_enter;
+	IF (gait_cycle-EnterStoneRotCount)<=StoneGripTime*gvl.sampleRate THEN
+		IF StoneRotSubState[i]=FALSE THEN
+			tr  := UDINT_TO_LREAL(gait_cycle - EnterStoneRotCount) / gvl.sampleRate /StoneGripTime;
+			fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+			FOR j:=0 TO 2 DO
+				StoneRot_FJntRef[i].data[j]:=(1-pvt)*StoneRot_FJntStart[i].data[j]+pvt*(StoneRot_FJntTarget[i,j]);
+			END_FOR
+			gvl.legCtrl[Mapping23[i]].ForwardKinetics(motorAngles:=StoneRot_FJntRef[i].data , legIndex:=Mapping23[i] , tipPosition=>StoneRot_FPosWrtHip[i].data );
+			fbRotMat(yaw := body_ref_ang_enter.data[2], pitch := body_ref_ang_enter.data[1],roll := body_ref_ang_enter.data[0], rm =>  Rb_target1 );
+			temp.data[0]:=hip_pos[Mapping23[i],0];temp.data[1]:=hip_pos[Mapping23[i],1];temp.data[2]:=hip_pos[Mapping23[i],2];
+			leg_ref_pos[Mapping23[i]]:= VecAdd( MatMulVec(Rb_target1, VecAdd(temp,MatMulVec(Rleg[Mapping23[i]],StoneRot_FPosWrtHip[i]))),body_ref_pos);
+		END_IF
+	ELSIF  (gait_cycle-EnterStoneRotCount)<=(StoneGripTime+StoneRotTime)*gvl.sampleRate  THEN
+		// drive knee motor with target velocity
+		GVL.jogVelocity[18]:=stone_rot_vel;
+		GVL.jogVelocity[19]:=-stone_rot_vel;
+		FOR j:=18 TO 19 DO
+			IF gvl.motorDrive[j].cvSetVel = GVL.jogVelocity[j] THEN
+				gvl.jogButton[j]:=FALSE;
+			ELSE
+				gvl.jogButton[j]:=TRUE;
+			END_IF
+		END_FOR
+	ELSE
+		noPlanning:=TRUE;
+	END_IF
+END_FOR
+IF StoneRotFinished=FALSE AND   StoneRotSubState[0]=TRUE AND StoneRotSubState[1]=TRUE AND (gait_cycle-EnterStoneRotCount)=(StoneGripTime+StoneRotTime)*gvl.sampleRate THEN
+	StoneRotFinished:=TRUE;
+END_IF
+
+
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="CurlingGait2">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.DoPlanning">
+      <LineId Id="45" Count="3" />
+      <LineId Id="50" Count="5" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.Initialize">
+      <LineId Id="123" Count="4" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="155" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="333" Count="0" />
+      <LineId Id="163" Count="0" />
+      <LineId Id="162" Count="0" />
+      <LineId Id="244" Count="0" />
+      <LineId Id="166" Count="0" />
+      <LineId Id="258" Count="15" />
+      <LineId Id="243" Count="0" />
+      <LineId Id="275" Count="16" />
+      <LineId Id="274" Count="0" />
+      <LineId Id="305" Count="0" />
+      <LineId Id="168" Count="0" />
+      <LineId Id="158" Count="0" />
+      <LineId Id="164" Count="0" />
+      <LineId Id="319" Count="0" />
+      <LineId Id="202" Count="0" />
+      <LineId Id="205" Count="0" />
+      <LineId Id="22" Count="2" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="141" Count="0" />
+      <LineId Id="30" Count="21" />
+      <LineId Id="88" Count="3" />
+      <LineId Id="87" Count="0" />
+      <LineId Id="64" Count="6" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.isStone">
+      <LineId Id="7" Count="3" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.SetTargetValue">
+      <LineId Id="5" Count="0" />
+      <LineId Id="9" Count="1" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.StateMachine">
+      <LineId Id="5" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="267" Count="1" />
+      <LineId Id="29" Count="0" />
+      <LineId Id="31" Count="1" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="35" Count="3" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="269" Count="1" />
+      <LineId Id="12" Count="3" />
+      <LineId Id="6" Count="0" />
+      <LineId Id="16" Count="1" />
+      <LineId Id="22" Count="1" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="271" Count="1" />
+      <LineId Id="48" Count="3" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="61" Count="3" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="65" Count="1" />
+      <LineId Id="273" Count="1" />
+      <LineId Id="67" Count="3" />
+      <LineId Id="53" Count="0" />
+      <LineId Id="76" Count="1" />
+      <LineId Id="72" Count="3" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="82" Count="0" />
+      <LineId Id="275" Count="1" />
+      <LineId Id="83" Count="3" />
+      <LineId Id="79" Count="0" />
+      <LineId Id="91" Count="3" />
+      <LineId Id="80" Count="1" />
+      <LineId Id="100" Count="0" />
+      <LineId Id="278" Count="0" />
+      <LineId Id="277" Count="0" />
+      <LineId Id="101" Count="3" />
+      <LineId Id="98" Count="0" />
+      <LineId Id="105" Count="3" />
+      <LineId Id="99" Count="0" />
+      <LineId Id="95" Count="0" />
+      <LineId Id="110" Count="0" />
+      <LineId Id="279" Count="1" />
+      <LineId Id="109" Count="0" />
+      <LineId Id="112" Count="1" />
+      <LineId Id="111" Count="0" />
+      <LineId Id="114" Count="0" />
+      <LineId Id="120" Count="2" />
+      <LineId Id="119" Count="0" />
+      <LineId Id="123" Count="0" />
+      <LineId Id="125" Count="0" />
+      <LineId Id="124" Count="0" />
+      <LineId Id="127" Count="3" />
+      <LineId Id="115" Count="3" />
+      <LineId Id="96" Count="0" />
+      <LineId Id="131" Count="0" />
+      <LineId Id="135" Count="0" />
+      <LineId Id="281" Count="1" />
+      <LineId Id="97" Count="0" />
+      <LineId Id="310" Count="0" />
+      <LineId Id="137" Count="2" />
+      <LineId Id="136" Count="0" />
+      <LineId Id="141" Count="1" />
+      <LineId Id="140" Count="0" />
+      <LineId Id="145" Count="4" />
+      <LineId Id="144" Count="0" />
+      <LineId Id="134" Count="0" />
+      <LineId Id="152" Count="0" />
+      <LineId Id="283" Count="1" />
+      <LineId Id="150" Count="0" />
+      <LineId Id="153" Count="2" />
+      <LineId Id="151" Count="0" />
+      <LineId Id="156" Count="3" />
+      <LineId Id="132" Count="0" />
+      <LineId Id="160" Count="0" />
+      <LineId Id="165" Count="0" />
+      <LineId Id="285" Count="1" />
+      <LineId Id="166" Count="3" />
+      <LineId Id="161" Count="0" />
+      <LineId Id="171" Count="2" />
+      <LineId Id="175" Count="0" />
+      <LineId Id="174" Count="0" />
+      <LineId Id="170" Count="0" />
+      <LineId Id="164" Count="0" />
+      <LineId Id="163" Count="0" />
+      <LineId Id="176" Count="0" />
+      <LineId Id="178" Count="0" />
+      <LineId Id="287" Count="1" />
+      <LineId Id="179" Count="3" />
+      <LineId Id="177" Count="0" />
+      <LineId Id="184" Count="1" />
+      <LineId Id="289" Count="1" />
+      <LineId Id="186" Count="0" />
+      <LineId Id="188" Count="2" />
+      <LineId Id="187" Count="0" />
+      <LineId Id="193" Count="1" />
+      <LineId Id="196" Count="2" />
+      <LineId Id="195" Count="0" />
+      <LineId Id="191" Count="0" />
+      <LineId Id="207" Count="0" />
+      <LineId Id="291" Count="1" />
+      <LineId Id="208" Count="3" />
+      <LineId Id="192" Count="0" />
+      <LineId Id="212" Count="2" />
+      <LineId Id="183" Count="0" />
+      <LineId Id="215" Count="0" />
+      <LineId Id="162" Count="0" />
+      <LineId Id="218" Count="0" />
+      <LineId Id="293" Count="1" />
+      <LineId Id="219" Count="3" />
+      <LineId Id="217" Count="0" />
+      <LineId Id="224" Count="3" />
+      <LineId Id="223" Count="0" />
+      <LineId Id="228" Count="0" />
+      <LineId Id="230" Count="1" />
+      <LineId Id="295" Count="1" />
+      <LineId Id="232" Count="2" />
+      <LineId Id="229" Count="0" />
+      <LineId Id="235" Count="7" />
+      <LineId Id="244" Count="0" />
+      <LineId Id="297" Count="1" />
+      <LineId Id="245" Count="3" />
+      <LineId Id="243" Count="0" />
+      <LineId Id="250" Count="3" />
+      <LineId Id="249" Count="0" />
+      <LineId Id="254" Count="0" />
+      <LineId Id="299" Count="1" />
+      <LineId Id="216" Count="0" />
+      <LineId Id="255" Count="0" />
+      <LineId Id="257" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="55" Count="5" />
+      <LineId Id="54" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning">
+      <LineId Id="6" Count="0" />
+      <LineId Id="133" Count="4" />
+      <LineId Id="7" Count="26" />
+      <LineId Id="125" Count="7" />
+      <LineId Id="34" Count="67" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_AddHeight">
+      <LineId Id="14" Count="1" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="17" Count="3" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="23" Count="4" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="29" Count="1" />
+      <LineId Id="28" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_BlegCenter">
+      <LineId Id="5" Count="0" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="32" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="25" Count="1" />
+      <LineId Id="29" Count="1" />
+      <LineId Id="37" Count="2" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="42" Count="0" />
+      <LineId Id="20" Count="1" />
+      <LineId Id="44" Count="2" />
+      <LineId Id="43" Count="0" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="51" Count="1" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="53" Count="1" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="13" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_FineTuning">
+      <LineId Id="68" Count="10" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="66" Count="1" />
+      <LineId Id="18" Count="1" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="50" Count="3" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="45" Count="2" />
+      <LineId Id="42" Count="1" />
+      <LineId Id="29" Count="0" />
+      <LineId Id="54" Count="1" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_FlegRotA">
+      <LineId Id="13" Count="2" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="16" Count="2" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="22" Count="2" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="27" Count="1" />
+      <LineId Id="30" Count="1" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="35" Count="1" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_FlegRotB">
+      <LineId Id="18" Count="2" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="21" Count="2" />
+      <LineId Id="25" Count="2" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="28" Count="3" />
+      <LineId Id="33" Count="2" />
+      <LineId Id="32" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_LiftMleg">
+      <LineId Id="5" Count="0" />
+      <LineId Id="13" Count="1" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="15" Count="1" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="26" Count="2" />
+      <LineId Id="31" Count="0" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="32" Count="0" />
+      <LineId Id="10" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_MlegRollA">
+      <LineId Id="8" Count="2" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="11" Count="2" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="24" Count="1" />
+      <LineId Id="27" Count="2" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="17" Count="1" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_MlegRollB">
+      <LineId Id="17" Count="2" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="20" Count="1" />
+      <LineId Id="23" Count="2" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="26" Count="3" />
+      <LineId Id="31" Count="2" />
+      <LineId Id="30" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_MlegRollC">
+      <LineId Id="5" Count="0" />
+      <LineId Id="21" Count="1" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="23" Count="1" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="26" Count="7" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="18" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_PushReleaseBall">
+      <LineId Id="63" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="32" Count="1" />
+      <LineId Id="31" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="23" Count="1" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="37" Count="2" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="48" Count="1" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="40" Count="3" />
+      <LineId Id="45" Count="1" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="51" Count="0" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="52" Count="1" />
+      <LineId Id="65" Count="0" />
+      <LineId Id="64" Count="0" />
+      <LineId Id="69" Count="2" />
+      <LineId Id="67" Count="0" />
+      <LineId Id="75" Count="2" />
+      <LineId Id="80" Count="2" />
+      <LineId Id="79" Count="0" />
+      <LineId Id="84" Count="1" />
+      <LineId Id="91" Count="0" />
+      <LineId Id="93" Count="0" />
+      <LineId Id="95" Count="2" />
+      <LineId Id="94" Count="0" />
+      <LineId Id="92" Count="0" />
+      <LineId Id="86" Count="4" />
+      <LineId Id="72" Count="0" />
+      <LineId Id="68" Count="0" />
+      <LineId Id="66" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_RecoveryReady">
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_ReduceHeight">
+      <LineId Id="5" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="19" Count="2" />
+      <LineId Id="24" Count="1" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="32" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="14" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_RoughTuning">
+      <LineId Id="5" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="25" Count="1" />
+      <LineId Id="29" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="30" Count="1" />
+      <LineId Id="33" Count="1" />
+      <LineId Id="37" Count="0" />
+      <LineId Id="32" Count="0" />
+      <LineId Id="43" Count="0" />
+      <LineId Id="56" Count="0" />
+      <LineId Id="46" Count="3" />
+      <LineId Id="44" Count="1" />
+      <LineId Id="38" Count="0" />
+      <LineId Id="53" Count="2" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="51" Count="1" />
+      <LineId Id="57" Count="0" />
+      <LineId Id="59" Count="2" />
+      <LineId Id="63" Count="2" />
+      <LineId Id="70" Count="0" />
+      <LineId Id="67" Count="0" />
+      <LineId Id="69" Count="0" />
+      <LineId Id="66" Count="0" />
+      <LineId Id="58" Count="0" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="74" Count="0" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="75" Count="0" />
+      <LineId Id="72" Count="0" />
+      <LineId Id="76" Count="0" />
+      <LineId Id="79" Count="11" />
+      <LineId Id="77" Count="0" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="91" Count="0" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="10" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_Slide">
+      <LineId Id="5" Count="0" />
+      <LineId Id="12" Count="1" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="14" Count="2" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_SpeedDown">
+      <LineId Id="5" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="41" Count="1" />
+      <LineId Id="40" Count="0" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="29" Count="2" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="38" Count="1" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="43" Count="1" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="10" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_SpeedUp">
+      <LineId Id="9" Count="2" />
+      <LineId Id="13" Count="6" />
+      <LineId Id="21" Count="8" />
+      <LineId Id="91" Count="1" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="31" Count="2" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="35" Count="1" />
+      <LineId Id="50" Count="1" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="55" Count="1" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="78" Count="0" />
+      <LineId Id="60" Count="0" />
+      <LineId Id="63" Count="1" />
+      <LineId Id="62" Count="0" />
+      <LineId Id="65" Count="0" />
+      <LineId Id="49" Count="0" />
+      <LineId Id="66" Count="0" />
+      <LineId Id="79" Count="0" />
+      <LineId Id="67" Count="0" />
+      <LineId Id="69" Count="1" />
+      <LineId Id="68" Count="0" />
+      <LineId Id="75" Count="0" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="72" Count="0" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="76" Count="1" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="89" Count="0" />
+      <LineId Id="37" Count="0" />
+      <LineId Id="80" Count="0" />
+      <LineId Id="82" Count="2" />
+      <LineId Id="86" Count="0" />
+      <LineId Id="88" Count="0" />
+      <LineId Id="81" Count="0" />
+      <LineId Id="90" Count="0" />
+      <LineId Id="38" Count="6" />
+      <LineId Id="34" Count="0" />
+    </LineIds>
+    <LineIds Name="CurlingGait2.TrjPlanning_StoneRot">
+      <LineId Id="17" Count="4" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="23" Count="2" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="26" Count="1" />
+      <LineId Id="29" Count="0" />
+      <LineId Id="31" Count="1" />
+      <LineId Id="35" Count="1" />
+      <LineId Id="38" Count="0" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="39" Count="1" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="51" Count="8" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="60" Count="0" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="62" Count="2" />
+      <LineId Id="43" Count="3" />
+      <LineId Id="42" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="RotM" Id="{d008ecba-f1c3-45d7-9cff-109f1de357ec}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK RotM
+VAR_INPUT
+	yaw : LREAL;
+	pitch : LREAL;
+	roll : LREAL;
+END_VAR
+VAR_OUTPUT
+	rm : Mat3;
+END_VAR
+VAR
+	cp, cy, cr, sp, sy, sr : LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// rm = rotz(yaw) * roty(pitch) * rotx(roll)
+//yk zyx欧拉角，xyz固定角
+cp := COS(pitch); cy := COS(yaw); cr := COS(roll);
+sp := SIN(pitch); sy := SIN(yaw); sr := SIN(roll);
+
+rm.data[0, 0] := cp * cy;
+rm.data[1, 0] := cp * sy;
+rm.data[2, 0] := -sp;
+
+rm.data[0, 1] := cy * sp * sr - cr * sy;
+rm.data[1, 1] := cr * cy + sp * sr * sy;
+rm.data[2, 1] := cp * sr;
+
+rm.data[0, 2] := cr * cy * sp + sr * sy;
+rm.data[1, 2] := cr * sp * sy - cy * sr;
+rm.data[2, 2] := cp * cr; 
+
+]]></ST>
+    </Implementation>
+    <LineIds Name="RotM">
+      <LineId Id="9" Count="0" />
+      <LineId Id="43" Count="0" />
+      <LineId Id="20" Count="1" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="15" Count="1" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="24" Count="1" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="28" Count="1" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="17" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

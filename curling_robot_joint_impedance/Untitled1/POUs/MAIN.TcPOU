@@ -1,0 +1,358 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="MAIN" Id="{8fd6ce06-fc84-4c9c-8764-4a07b0d9ff06}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+	i : UINT;
+	j : UINT;
+	count : UDINT := 0;
+
+	tipPos, tipVel, tipFce : ARRAY[0..2] OF LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[//////////////////////////////////////////////////////
+//                                                  //
+// Initialization                                   //
+//                                                  //
+//////////////////////////////////////////////////////
+IF count = 0 THEN
+	// init visulization parameters
+	gvl.uiHandler.Initialize();
+	// init message
+	
+	// init device address
+	// with sdo settings
+	gvl.sdoSetup.SetSlaveAddr();//yk需要根据控制器网址设置地址
+	
+	
+	// init axes configuration
+	// Note: Some parameters are downloaded to sdo
+	// thus not all of these parameters are actually used
+	FOR i := 0 TO 20 DO
+		gvl.motorDrive[i].InitParam(
+			// actual motor direction with regards to the model definition, -1 or +1
+			motorDirIn      := gvl.motorDirs[i],
+			// actual trq sensor direction wrt the model defintion, -1 or +1 
+			trqSensorDirIn  := gvl.trqSensorDirs[i],
+			// position offset at home ,need calibrate
+			posHomeOffsetIn := gvl.posHomeOffsets[i],
+			// signal positive slope of the torque sensor raw output to Nm
+			signalPosSlope  := gvl.signalPosSlopes[i],
+			// signal negative slope of the torque sensor raw output to Nm
+			signalNegSlope  := gvl.signalNegSlopes[i],
+			// home velocity
+			homingVel       := gvl.homingVels[i],
+			// constant of the coloumb friction, yk阻抗控制的是减速机输出扭矩，默认0.01Nm是作用在电机轴上。
+			redcClbConst    := gvl.redcClbConsts[i] * 50,
+			// trq ctrl upper angle, if the motor runs over this angle, it will be powered off 
+			trqCtrlUpperAng := gvl.trqCtrlUpperAngs[i]/180.0*pi,
+			// trq ctrl lower angle, if the motor runs over this angle, it will be powered off 
+			trqCtrlLowerAng := gvl.trqCtrlLowerAngs[i]/180.0*Pi,
+			// trq ctrl normal angle//电机实际值
+			tgtAngleIn      := gvl.normalAngles[i]/180.0*pi,
+			motorActualHomePosIncrementIn:=gvl.motorActualHomePosIncrement[i],
+			indexIn:=i,
+			kVirtualIn:=gvl.KPP_init[i],
+			bVirtualIn:=gvl.KPD_init[i],
+			kpTrqLoopIn:=gvl.KFP_init[i],
+			kiTrqLoopIn:=gvl.KFI_init[i],
+			count2radianRatioIn:=gvl.count2radianRatio[i]
+		);
+	END_FOR
+	
+	// configure leg parameters to leg controller
+	FOR i := 0 TO 5 DO
+		gvl.LegCtrl[i].InitParam(
+			// leg id
+			id := i,
+			// length of shank link
+			ShankLengthIn := GVL.ShankLength[i],
+			// length of thigh link
+			ThighLengthIn := GVL.ThighLength[i],
+			// sagital plane offset
+			sagPlaneOffsetIn:=gvl.sagPlaneOffset[i]);
+	END_FOR
+	
+	// set RC reference
+	gvl.jntRefPosLastPlanning:=gvl.jntRefPosLastPlanningFirstRc;
+	
+END_IF
+
+//////////////////////////////////////////////////////
+//                                                  //
+// Cyclic control                                   //
+//                                                  //
+//////////////////////////////////////////////////////
+
+// add count 
+count := count + 1;
+
+// write sdos configurations to devices 
+// this command will last until the sdo writing ops finished 
+ gvl.sdoSetup.InitSdoConfig();//设定走home模式和home对应0，所以角度换算时需要加入home对应实际运动学值,设置扭矩传感器可以删除
+
+// update device feedbacks
+FOR i := 0 TO 20 DO
+	gvl.motorDrive[i].StatusDisplay();
+	gvl.motorDrive[i].CalculateMotorAngle();
+	gvl.motorDrive[i].CalibrateTrqData();
+END_FOR
+
+// Axis level 
+// Group command handling,批量控制，需调用单轴控制实现
+gvl.uiHandler.GroupMotionCmdHandling();
+gvl.uiHandler.GroupForceCtrlCmdHandling();
+// Axis command handling,单轴运动控制和力控
+gvl.uiHandler.AxisMotionCmdHandling();
+gvl.uiHandler.AxisForceCtrlCmdHandling();
+// TrqSensor command handling,扭矩传感器清零
+gvl.uiHandler.TrqSensorCmdHandling();
+// gait command handling步态控制
+gvl.uiHandler.GaitCtrlCmdHandling();
+
+// receive imu data from ads
+(*gvl.accx := gvl.IMUDATA[1];
+gvl.accy := gvl.IMUDATA[2];
+gvl.accz := gvl.IMUDATA[3];
+gvl.roll := gvl.IMUDATA[4];
+gvl.pitch := gvl.IMUDATA[5];
+gvl.yaw  := gvl.IMUDATA[6];
+
+// update robot states
+gvl.rpy_model[0] := gvl.roll/180.0*pi;
+gvl.rpy_model[1] := gvl.pitch/180.0*pi;
+gvl.rpy_model[2] := gvl.yaw/180.0*pi;*)
+gvl.roll := gvl.rpy_inpt[0];
+gvl.pitch := gvl.rpy_inpt[1];
+gvl.yaw  := gvl.rpy_inpt[2];
+gvl.rpy_model[0] := gvl.roll/180.0*pi;
+gvl.rpy_model[1] := gvl.pitch/180.0*pi;
+gvl.rpy_model[2] := gvl.yaw/180.0*pi;
+
+
+FOR i := 0 TO 5 DO
+	FOR j := 0 TO 2 DO
+		gvl.legCtrl[i].UpdateDriveFeedbacks(gvl.motorDrive[i*3 + j], j,i);////yk 调用18次，每次调用写入一次腿运动学参数
+	END_FOR
+	
+	gvl.legCtrl[i].ForwardKinetics(
+		motorAngles := gvl.legCtrl[i].motorAnglesIn,
+		legIndex:=i,
+		tipPosition => tipPos);
+		
+	gvl.legCtrl[i].TipVelocity(
+		motorVel := gvl.legCtrl[i].motorAngVelIn,
+		motorAng := gvl.legCtrl[i].motorAnglesIn,
+		legIndex:=i,
+		tipVel   => tipVel);
+		
+	gvl.legCtrl[i].TipForce(
+		motorTrq := gvl.legCtrl[i].jointTorqueIn,
+		motorAng := gvl.legCtrl[i].motorAnglesIn,
+		legIndex:=i,
+		tipFce   => tipFce);
+		
+	FOR j := 0 TO 2 DO
+		gvl.tipActualPos[i, j] := tipPos[j];
+		gvl.tipActualVel[i, j] := tipVel[j];
+		gvl.tipActualFce[i, j] := tipFce[j];
+		gvl.jntActualPos[i, j] := gvl.legCtrl[i].motorAnglesIn[j];
+		gvl.jntActualVel[i, j] := gvl.legCtrl[i].motorAngVelIn[j];
+		gvl.jntActualFce[i, j] := gvl.legCtrl[i].jointTorqueIn[j];
+		gvl.jntLastRefPos[i, j] := gvl.legCtrl[i].motorRefAnglesIn[j];
+	END_FOR
+END_FOR
+
+///////////////////////////////////////////////////////
+// Gait Control
+
+IF gvl.isInGaitMode THEN
+	gvl.gaitPlanner.DoPlanning(isDone => gvl.isFinished); 
+	
+	IF gvl.isFinished OR gvl.emergencyStop THEN
+		gvl.gaitPlanner.FinalizeGaitCmd();
+		gvl.isInGaitMode := FALSE;
+	END_IF
+	
+	// Download cmds
+	FOR i := 0 TO 5 DO
+		// copy cmds to each leg,
+		gvl.legCtrl[i].SetReference();
+		// map ref pos, vel, and fce to actual joints
+		FOR j := 0 TO 2 DO
+			gvl.legCtrl[i].DownloadDriveCmds(gvl.motorDrive[i*3 + j], j,i);
+		END_FOR
+	END_FOR
+END_IF
+
+// Drive level control
+FOR i := 0 TO 20 DO	
+	// Mid level control algorithms
+	IF NOT gvl.motorDrive[i].isInForceControl THEN
+		IF i=18 OR i=19 OR i=20 THEN
+			gvl.opModeCmd[i] := 3;
+		ELSE
+			gvl.opModeCmd[i] := 9;
+		END_IF
+		IF i=20 THEN
+			IF gvl.motorDrive[i].IsAbsMoveState=TRUE THEN
+				gvl.opModeCmd[i] := 1;
+			ELSE
+				gvl.opModeCmd[i] := 3;				
+			END_IF
+		END_IF
+		
+		gvl.motorDrive[i].GoHome(); 
+		gvl.motorDrive[i].JogControl();
+		gvl.motorDrive[i].AbsMove();
+	ELSE
+		gvl.opModeCmd[i] := 10;
+		gvl.motorDrive[i].ImpedControl(
+			desiredTorque := 0,
+			isExternalIC := FALSE);//阻抗参数已经通过gvl.legCtrl[i].DownloadDriveCmds(gvl.motorDrive[i*3 + j], j)写入，所以这里参考力为0
+		
+		//gvl.motorDrive[i].ImpedControl2();
+		
+		// Convert torque (Nm) to current cmd ( per 1/1000 )
+		gvl.motorDrive[i].CalculateCurrentCmd();
+	END_IF
+	
+	// Low level control
+	gvl.motorDrive[i].DriverControl(gvl.opModeCmd[i], gvl.enableCmd[i]);
+END_FOR
+
+
+(*
+yk 需要根据实际更新
+// torque sensor board control
+gvl.setCtrlZero[0] := 0;
+gvl.setCtrlZero[1] := 0;
+FOR i := 0 TO 11 DO
+	IF i < 6 THEN
+		gvl.setCtrlZero[0] := gvl.setCtrlZero[0] OR SHL(gvl.motorDrive[i].trqSensor.reqReset, 5 - i);
+	ELSE
+		gvl.setCtrlZero[1] := gvl.setCtrlZero[1] OR SHL(gvl.motorDrive[i].trqSensor.reqReset, i - 6);
+	END_IF
+END_FOR
+*)
+
+// clear emergency stop event
+IF gvl.emergencyStop THEN
+	// count emergency stop event number
+	gvl.emergencyStopCount := gvl.emergencyStopCount+1;
+	// clear
+	gvl.emergencyStop := FALSE;
+END_IF
+
+FOR i:=0 TO 5 DO
+	FOR j:=0 TO 2 DO
+		gvl.jntRefVelDif[i,j]:=(gvl.jntRefPos[i,j]-gvl.lastjntRefPos[i,j])*DINT_TO_LREAL(gvl.sampleRate);
+		gvl.lastjntRefPos[i,j]:=gvl.jntRefPos[i,j];
+	END_FOR
+END_FOR
+
+IF gvl.setRcRefAngButton=TRUE THEN
+	gvl.jntRefPosLastPlanning:=gvl.jntRefPosLastPlanningFirstRc;
+	gvl.setRcRefAngButton:=FALSE;
+END_IF
+
+IF gvl.RestButton=TRUE AND gvl.WorkButton=FALSE THEN
+	gvl.ReduceDistance:=-0.08;
+	gvl.IsRest:=TRUE;
+	gvl.IsWork:=FALSE;
+	gvl.LiftBodyStartFlag:=TRUE;
+	gvl.LiftBodyEndFlag:=FALSE;
+	gvl.LiftBodyEndFlagLast:=FALSE;
+	gvl.RestButton:=FALSE;
+END_IF
+IF gvl.RestButton=FALSE AND gvl.WorkButton=TRUE THEN
+	gvl.ReduceDistance:=0.08;
+	gvl.IsWork:=TRUE;
+	gvl.IsRest:=FALSE;
+	gvl.LiftBodyStartFlag:=TRUE;
+	gvl.LiftBodyEndFlag:=FALSE;
+	gvl.LiftBodyEndFlagLast:=FALSE;
+	gvl.WorkButton:=FALSE;
+END_IF
+
+IF gvl.IsRest=TRUE THEN
+	IF gvl.LiftBodyStartFlag=TRUE THEN
+		gvl.LiftBodyStartFlag:=FALSE;
+		gvl.gaitId:=2;
+		gvl.IsLiftBody:=TRUE;
+		IF gvl.ReduceDistance>0 THEN
+			gvl.ReduceDistance:=-gvl.ReduceDistance;
+		END_IF
+		IF ABS(gvl.ReduceDistance)>=0.15 THEN
+			gvl.ReduceDistance:=-0.15;
+		END_IF 
+		GVL.startGaitButton:=TRUE;
+		gvl.LiftBodyStartFlag:=FALSE;
+		gvl.LiftBodyEndFlag:=FALSE;
+	END_IF
+	IF gvl.IsLiftBody:=TRUE AND GVL.isInGaitMode=TRUE THEN
+		gvl.LiftBodyEndFlag:= gvl.isFinished;
+	END_IF	
+	IF gvl.LiftBodyEndFlagLast=FALSE AND gvl.LiftBodyEndFlag=TRUE AND gvl.IsLiftBody=TRUE THEN
+		gvl.IsLiftBody:=FALSE;
+		gvl.IsRest:=FALSE;
+	END_IF
+	gvl.LiftBodyEndFlagLast:=gvl.LiftBodyEndFlag;	
+END_IF
+
+IF gvl.IsWork=TRUE THEN
+	IF gvl.LiftBodyStartFlag=TRUE THEN
+		gvl.LiftBodyStartFlag:=FALSE;
+		gvl.gaitId:=2;
+		gvl.IsLiftBody:=TRUE;
+		IF gvl.ReduceDistance<0 THEN
+			gvl.ReduceDistance:=-gvl.ReduceDistance;
+		END_IF
+		IF ABS(gvl.ReduceDistance)>=0.15 THEN
+			gvl.ReduceDistance:=0.15;
+		END_IF 
+		GVL.startGaitButton:=TRUE;
+		gvl.LiftBodyStartFlag:=FALSE;
+		gvl.LiftBodyEndFlag:=FALSE;
+	END_IF
+	IF gvl.IsLiftBody:=TRUE AND GVL.isInGaitMode=TRUE THEN
+		gvl.LiftBodyEndFlag:= gvl.isFinished;
+	END_IF	
+	IF gvl.LiftBodyEndFlagLast=FALSE AND gvl.LiftBodyEndFlag=TRUE AND gvl.IsLiftBody=TRUE THEN
+		gvl.IsLiftBody:=FALSE;
+		gvl.IsWork:=FALSE;
+	END_IF
+	gvl.LiftBodyEndFlagLast:=gvl.LiftBodyEndFlag;	
+END_IF
+
+
+
+
+
+
+
+
+
+]]></ST>
+    </Implementation>
+    <LineIds Name="MAIN">
+      <LineId Id="410" Count="246" />
+      <LineId Id="884" Count="0" />
+      <LineId Id="657" Count="1" />
+      <LineId Id="774" Count="2" />
+      <LineId Id="773" Count="0" />
+      <LineId Id="664" Count="1" />
+      <LineId Id="885" Count="0" />
+      <LineId Id="666" Count="7" />
+      <LineId Id="852" Count="19" />
+      <LineId Id="873" Count="2" />
+      <LineId Id="725" Count="16" />
+      <LineId Id="743" Count="2" />
+      <LineId Id="747" Count="1" />
+      <LineId Id="750" Count="1" />
+      <LineId Id="754" Count="10" />
+      <LineId Id="66" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

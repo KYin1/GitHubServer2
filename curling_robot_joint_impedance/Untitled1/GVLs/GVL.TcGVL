@@ -1,0 +1,445 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <GVL Name="GVL" Id="{bd75a475-74a4-4262-b946-ab1c92df99d7}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+VAR_GLOBAL
+	
+	
+	(*yk 适应*)
+	motor_count :  INT :=20;
+	
+	
+	(* system parameters *)
+	sampleRate              : DINT := 1000;
+	//count2radianRatio  : LREAL := 5.9921124526782860535862796464529E-6;  // 2*pi/1048576
+	count2radianRatio  : ARRAY[0..20] OF LREAL := [2*pi/1048576.0,2*pi/1048576.0,2*pi/1048576.0,
+                                                   2*pi/1048576.0,2*pi/1048576.0,2*pi/1048576.0,
+                                                   2*pi/1048576.0,2*pi/1048576.0,2*pi/1048576.0,
+                                                   2*pi/1048576.0,2*pi/1048576.0,2*pi/1048576.0,
+                                                   2*pi/1048576.0,2*pi/1048576.0,2*pi/1048576.0,
+                                                   2*pi/1048576.0,2*pi/1048576.0,2*pi/1048576.0,
+                                                   2*pi/4096.0/9.0,2*pi/4096.0/9.0,2*pi/4096.0/9.0];	
+	(* hardware instances *)
+	motorDrive              : ARRAY[0..20] OF IntegratedDrive;
+	setTrqSensorZero AT%Q*  : ARRAY[0..2]  OF USINT;
+	setCtrlZero      AT%Q*  : ARRAY[0..2]  OF USINT;
+	
+	(* sdo defs *)
+	sdoSetup                : SdoSetup;
+	sdoWriteOnce            : SdoWrite;
+	
+	(* IMU readings *)
+	IMUDATA : ARRAY[1..6] OF LREAL;
+	roll, pitch, yaw        : LREAL;
+	accx, accy, accz        : LREAL;
+	(* RPY angle aligned to model axis *)
+	rpy_model               : ARRAY[0..2] OF LREAL;
+	rpy_inpt 		   AT%I*: ARRAY[0..2] OF REAL;
+	
+	(* motor init parameters*)
+	motorDirs        : ARRAY[0..20] OF INT := [1, -1, 1, 
+                                               1, 1, 1,
+                                               1, 1, 1,
+                                               -1, -1, 1,
+											   -1, -1, 1,
+											   -1, 1, 1,-1,-1,1];//curling2
+	(*trqSensorDirs    : ARRAY[0..19] OF INT := [1, -1, 1, 
+                                               1, 1, 1,
+                                               1, 1, 1,
+                                               -1, -1, 1,
+											   -1, -1, 1,
+ 											   -1, 1, 1,1,1];*)
+	trqSensorDirs    : ARRAY[0..20] OF INT := [1, -1, 1, 
+                                               1, 1, 1,
+                                               1, 1, 1,
+                                               -1, -1, 1,
+											   -1, -1, 1,
+ 											   -1, 1, 1,-1,-1,-1];											   
+											   
+	// yk 按照小腿、大腿、侧摆角给出
+	(*posHomeOffsets   : ARRAY[0..19] OF LREAL:= [5.497-pi, 3.9269, 0, 
+                                                3.9269-pi, 5.497, 0,
+                                                3.9269-pi, 5.497, -pi/2, 
+                                                3.9269-pi, 5.497, pi/2,
+							 					3.9269-pi, 5.497, 0, 
+                                                5.497-pi, 3.9269, 0,0,0];//home position in model*)
+	(*posHomeOffsets   : ARRAY[0..20] OF LREAL:= [316.8582*pi/180+0.0844, 103.423*pi/180+0.0636, 0*pi/180-0.012, 
+                                                109.534*pi/180+0.0052, 350.2283*pi/180-0.042, 90*pi/180-0.018,
+                                                102.1787*pi/180+0.0218, 322.4662*pi/180-0.0564, 90*pi/180-0.035, 
+                                                102.1787*pi/180+0.0018, 322.4662*pi/180-0.0184, -90*pi/180+0.072,
+							 					109.534*pi/180+0.0392, 350.2283*pi/180-0.061, -90*pi/180+0.032, 
+                                                316.8582*pi/180+0.0954, 103.423*pi/180+0.0646,  0*180/pi-0,
+												0,0,0*pi/180];//home position in model obtained by calibration board	*)
+	posHomeOffsets   : ARRAY[0..20] OF LREAL:= [316.8582*pi/180+0.0844, 103.423*pi/180+0.0636, 0*pi/180-0.012, 
+                                                109.534*pi/180+0.0052, 350.2283*pi/180-0.042, 90*pi/180-0.018,
+                                                102.1787*pi/180+0.0218, 322.4662*pi/180-0.0564, 90*pi/180-0.035, 
+                                                102.1787*pi/180+0.0018, 322.4662*pi/180-0.0184, -90*pi/180+0.072,
+							 					109.534*pi/180+0.0392, 350.2283*pi/180-0.061, -90*pi/180+0.032, 
+                                                316.8582*pi/180+0.0954, 103.423*pi/180+0.0646,  0*180/pi-0,
+												0,0,0*pi/180];//home position in model obtained by calibration board											
+														
+	(*motorActualHomePosIncrement:ARRAY[0..20] OF DINT:= [-391364,-52566,310018,
+														 -412094,-268692,-444796,	
+														 -432711,-284347,268081,
+														 343587,27385,507790,
+														 -90255,27553,164936,
+														 -124974,-465365,520356,
+														 0,0,0];//increment at home position in model obtained by calibration board 20220104*)	
+	motorActualHomePosIncrement:ARRAY[0..20] OF DINT:= [-391364,-52566,-281217,
+														 -412094,-268692,-444796,	
+														 -432711,-284347,268081,
+														 343587,27385,507790,
+														 -90255,27553,164936,
+														 -124974,-465365,263290,
+														 0,0,0];//increment at home position in model obtained by calibration board 20220104												 
+														 
+	signalPosSlopes   : ARRAY[0..20] OF LREAL := [65, 65, 65, 
+                                               65, 65, 65,
+                                               65, 65, 65,
+                                               65, 65, 65,
+											   65, 65, 65,
+											   65, 65, 65,1,1,1];
+	signalNegSlopes   : ARRAY[0..20] OF LREAL := [65, 65, 65, 
+                                               65, 65, 65,
+                                               65, 65, 65,
+                                               65, 65, 65,
+											   65, 65, 65,
+											   65, 65, 65,1,1,1];
+	homingVels       : ARRAY[0..20] OF LREAL:= [0.01, 0.01,  0.01, 
+                                               0.01, 0.01,  0.01,
+                                               0.01, 0.01,  0.01, 
+                                               0.01, 0.01,  0.01,
+											   0.01, 0.01,  0.01, 
+                                               0.01, 0.01,  0.01,0,0,0.01];
+	AbsMoveTgtPos  :	ARRAY[0..20] OF LREAL :=[0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+			                                              0, 0, 0];												   
+	redcClbConsts    : ARRAY[0..20] OF LREAL:= [0.01, 0.01, 0.01, 
+                                                0.01, 0.01, 0.01,
+                                                0.01, 0.01, 0.01, 
+                                                0.01, 0.01, 0.01,
+                                                0.01, 0.01, 0.01, 
+                                                0.01, 0.01, 0.01,0,0,0];
+	KPP_init    	 : ARRAY[0..20] OF LREAL:= [1250, 1250, 1250, 
+                                                1250, 1250, 1250,
+                                                1250, 1250, 1250, 
+                                                1250, 1250, 1250,
+                                                1250, 1250, 1250, 
+                                                1250, 1250, 1250,0,0,0];	
+	(*KPP_init    	 : ARRAY[0..20] OF LREAL:= [1000, 1000, 1000, 
+                                                1000, 1000, 1000,
+                                                1000, 1000, 1000, 
+                                                1000, 1000, 1000,
+                                                1000, 1000, 1000, 
+                                                1000, 1000, 1000,0,0,0];	*)	
+	KPD_init    	 : ARRAY[0..20] OF LREAL:= [25, 25, 25, 
+                                                25, 25, 25,
+                                                25, 25, 25, 
+                                                25, 25, 25,
+                                                25, 25, 25, 
+                                                25, 25, 25,0,0,0];									
+	(*KPD_init    	 : ARRAY[0..20] OF LREAL:= [10, 10, 10, 
+                                                10, 10, 10,
+                                                10, 10, 10, 
+                                                10, 10, 10,
+                                                10, 10, 10, 
+                                                10, 10, 10,0,0,0];*)
+	KFP_init    	 : ARRAY[0..20] OF LREAL:= [0.5, 0.5, 0.5, 
+                                                0.5, 0.5, 0.5,
+                                                0.5, 0.5, 0.5, 
+                                                0.5, 0.5, 0.5,
+                                                0.5, 0.5, 0.5, 
+                                                0.5, 0.5, 0.5,0,0,0];
+	KFI_init    	 : ARRAY[0..20] OF LREAL:= [0.75, 0.75, 0.75, 
+                                                0.75, 0.75, 0.75,
+                                                0.75, 0.75, 0.75, 
+                                                0.75, 0.75, 0.75,
+                                                0.75, 0.75, 0.75, 
+                                                0.75, 0.75, 0.75,0,0,0];
+
+
+													
+												
+	//yk 小腿、大腿、侧摆顺序给出，	电机实际角度值，只有运动学上角度才使用小腿角度+pi，			
+	trqCtrlUpperAngs : ARRAY[0..20] OF LREAL:= [360, 360, 180, 
+                                                360, 360, 180,
+                                                360, 360, 180, 
+                                                360, 360, 180,
+                                                360, 360, 180, 
+                                                360, 360, 180,180,180,360];
+	trqCtrlLowerAngs : ARRAY[0..20] OF LREAL:= [0, 0, -180, 
+                                                0, 0, -180,
+                                                0, 0, -180, 
+                                                0, 0, -180,
+                                                0, 0, -180, 
+                                                0, 0, -180,-180,-180,0];
+	normalAngles   : ARRAY[0..20] OF LREAL:= [5.497, 3.9269, 0, 
+                                              3.9269, 5.497, 0,
+                                              3.9269, 5.497, 0, 
+                                              3.9269, 5.497, 0,
+                                              3.9269, 5.497, 0, 
+                                              5.497, 3.9269, 0,0,0,0];// yk 小腿电机角度一定要小于大腿电机角度，才能保证平行四边形腿结构
+	(* Visulization linked variables *)
+	uiHandler             : UIHandler;
+	
+	(* axis command *)
+	opModeCmd: ARRAY[0..20] OF USINT;
+	enableCmd: ARRAY[0..20] OF BOOL;
+	
+	(* leg physical parameter *)
+	ShankLength : ARRAY[0..5] OF LREAL:=[0.5,0.28,0.28,0.28,0.28,0.5];//RB,RM,RF,LF,LM,LB
+	ThighLength : ARRAY[0..5] OF LREAL:=[0.5,0.3,0.3,0.3,0.3,0.5];//RB,RM,RF,LF,LM,LB
+	
+	(* model *)
+	legCtrl               : ARRAY[0..5] OF LegController;
+	sagPlaneOffset	  :ARRAY[0..5] OF LREAL:=[0,0.1246,0.1246,-0.1246,-0.1246,0];
+	
+	tipActualPos          : ARRAY[0..5,0..2] OF LREAL := [0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0];
+    tipActualVel          : ARRAY[0..5,0..2] OF LREAL := [0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0];
+    tipActualFce          : ARRAY[0..5,0..2] OF LREAL := [0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0];
+	// joint pos, vel and fce after hardware-model mapping
+	jntActualPos          : ARRAY[0..5,0..2] OF LREAL := [0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0];
+    jntActualVel          : ARRAY[0..5,0..2] OF LREAL := [0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0];
+    jntActualFce          : ARRAY[0..5,0..2] OF LREAL := [0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0];
+	// yk 参考位置和速度按照单腿运动学侧摆、大腿、小腿（+pi）给出
+	jntRefPos             : ARRAY[0..5,0..2] OF LREAL;
+	jntRefVel             : ARRAY[0..5,0..2] OF LREAL;
+	lastjntRefPos         : ARRAY[0..5,0..2] OF LREAL:=[0,0,0,
+														0,0,0,
+														0,0,0,
+														0,0,0,
+														0,0,0,
+														0,0,0];
+	jntRefVelDif          : ARRAY[0..5,0..2] OF LREAL;
+	jntRefFce             : ARRAY[0..5,0..2] OF LREAL;
+	jntLastRefPos         : ARRAY[0..5,0..2] OF LREAL;
+	
+	jntRefPosTuning       : ARRAY[0..5,0..2] OF LREAL;
+	jntRefVelTuning       : ARRAY[0..5,0..2] OF LREAL;
+	jntRefFceTuning       : ARRAY[0..5,0..2] OF LREAL;
+	
+	jntRefPosLastPlanning:ARRAY[0..5,0..2] OF LREAL;
+	
+	(*jntRefPosLastPlanningFirstRc:ARRAY[0..5,0..2] OF LREAL:=[0,188.4468*pi/180,322.1064*pi/180,
+											 0,312.3065*pi/180,(219.5084-312.3065)*pi/180,	
+											 0,312.3065*pi/180,(219.5084-312.3065)*pi/180,
+											 0,312.3065*pi/180,(219.5084-312.3065)*pi/180,
+									         0,312.3065*pi/180,(219.5084-312.3065)*pi/180,
+											 0,188.4468*pi/180,322.1064*pi/180];*)
+											 
+	(*jntRefPosLastPlanningFirstRc:ARRAY[0..5,0..2] OF LREAL:=[0,194.9664*pi/180,320.003*pi/180,
+											 0,302.7132*pi/180,(230.9946-302.7132)*pi/180,	
+											 0,302.7132*pi/180,(230.9946-302.7132)*pi/180,
+											 0,302.7132*pi/180,(230.9946-302.7132)*pi/180,
+									         0,302.7132*pi/180,(230.9946-302.7132)*pi/180,
+											 0,194.9664*pi/180,320.003*pi/180];	*)
+
+	jntRefPosLastPlanningFirstRc:ARRAY[0..5,0..2] OF LREAL:=[0,156.4222*pi/180,269.8005*pi/180,
+											 0,320.9331*pi/180,(208.0880-320.9331)*pi/180,	
+											 0,187.8384*pi/180,(269.4264-187.8384)*pi/180,
+											 0,187.8384*pi/180,(269.4264-187.8384)*pi/180,
+									         0,320.9331*pi/180,(208.0880-320.9331)*pi/180,
+											 0,156.4222*pi/180,269.8005*pi/180];										 
+	
+	(* axis control *)
+	enablebuttonText      : ARRAY[0..20] OF STRING(20);
+	enableButton          : ARRAY[0..20] OF BOOL;//赋值给enableCmd,gvl.motorDrive[i].DriverControl(gvl.opModeCmd[i], gvl.enableCmd[i])控制电机
+	startHomeButton       : ARRAY[0..20] OF BOOL;//单轴和批量都可以赋值，批量赋值后需要进入单轴控制函数执行走home
+	setInitPositionButton : ARRAY[0..20] OF BOOL;//单轴和批量都可以赋值，批量赋值后需要进入单轴控制函数执行走设置初始值，调用驱动器驱动函数设置当前home值进入驱动器
+	jogButton             : ARRAY[0..20] OF BOOL;
+	jogStopButton         : ARRAY[0..20] OF BOOL; 
+	jogVelocity           : ARRAY[0..20] OF LREAL;
+	AbsMoveButton		  : ARRAY[0..20] OF BOOL;
+	AbsMoveStopButton	  : ARRAY[0..20] OF BOOL;
+	
+	setTSRZeroButton      : BOOL  := FALSE;
+	groupSelector         : UINT  := 0;//单选对应数组号，为其值
+	enableGroupButton     : BOOL  := FALSE;
+	disableGroupButton    : BOOL  := FALSE;
+	homeGroupButton       : BOOL  := FALSE;
+	setPosGroupButton     : BOOL  := FALSE;
+	jogGroupButton        : BOOL  := FALSE;
+	jogStopGroupButton    : BOOL  := FALSE;
+    //jogGroupVelocity      : DINT  := -2000;
+	jogGroupVelocity      : lreal  := 0.01;
+	
+	setGroupImpedButton   : BOOL  := FALSE;
+	useHardImpedButton    : BOOL  := FALSE;
+	useSoftImpedButton    : BOOL  := FALSE;
+	kpGroup               : LREAL := 220;
+	kdGroup               : LREAL := 30;
+	kpTrqGroup            : LREAL := 0.5;
+	kiTrqGroup            : LREAL := 0.75;
+	
+	activeAxisList        : ARRAY[0..9] OF ARRAY[0..17] OF USINT := 
+                              [[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                               [1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0],
+                               [0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0],
+                               [0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1],
+                               [1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                               [0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+                               [0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0],
+                               [0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0],
+                               [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0],
+                               [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1]]; //yk 控制一起走home的驱动器号
+	
+	axisForceCtrlButton   : ARRAY[0..17] OF BOOL;//控制力控开始结束
+	axisForceCtrlModeInd  : ARRAY[0..17] OF BOOL;//显示是否处于力控状态
+	forceCtrlGroupButton     : BOOL := FALSE;//批量控制进入力控模式
+	forceCtrlGroupOffButton  : BOOL := FALSE;//批量停止进入力控模式
+
+	(* gait control *)
+	startGaitButton: BOOL   := FALSE;
+	isInGaitMode  :  BOOL   := FALSE;
+	isFinished    :  BOOL   := FALSE;
+	gaitPlanner   :  GaitPlanner;
+	gaitId        :  UINT   := 0;
+	gaitNameLists :  ARRAY[0..11] OF WSTRING(20) := ["Recovery", "Walk_static", "LiftBody", "Swing","CurlingFrStand","CurlingFrSlip","RcToSlipFrCurl","RcToCurFrSlip","RcToStandFrSlip","BLegSlip","TrotWalk","WalkSlope"];
+	
+	RcGaitId:UINT:=0;
+	RcGaitNameLists:ARRAY[0..1] OF WSTRING(20):=["RcWalk","RcCurling"];
+	
+	(* measurement *)
+	trqReadings           : ARRAY[0..17] OF LREAL;
+	trqOutputs            : ARRAY[0..17] OF LREAL;
+	trqOutputs2           : ARRAY[0..17] OF LREAL;
+	jntActCurrentMea      : ARRAY[0..17] OF INT;
+	jntActualPosMea       : ARRAY[0..3,0..2] OF REAL := [0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0];
+
+    jntActualFceMea       : ARRAY[0..3,0..2] OF REAL := [0, 0, 0,
+                                                          0, 0, 0,
+														  0, 0, 0,
+														  0, 0, 0];
+	
+	jntRefPosMea          : ARRAY[0..3,0..2] OF REAL;
+	jntRefFceMea          : ARRAY[0..3,0..2] OF REAL;
+	
+	(* global stop to shutdown all drives *)
+	emergencyStop: BOOL := FALSE;//针对力控
+	emergencyStopCount: INT := 0;
+	
+	(* trq sensor board *)
+	useParamIndex: USINT;
+	requireSet: BOOL := FALSE;
+	raiseEdgeCount: INT := -1;
+	setBit: USINT;
+	
+	walk_threshold_value:LREAL:=0.3;
+    lift_threshold_value:LREAL:=0.3;
+	swing_threshold_value:LREAL:=0.3;
+	curling_threshold_value:lreal:=0.3;
+
+	//Rc gait
+	setRcRefAngButton:BOOL:=FALSE;
+	
+	//curling
+	taskChooseId:UINT:=0;
+	taskChooseList:array [0..1] of wstring(20):=["击打","进营"];
+	adjust_angle_degree:LREAL:=0;//degree
+	target_vel:LREAL:=2;//m/s
+	stone_rot_vel:LREAL:=-60;//rpm
+	PushVelocityIn:LREAL:=2.3;
+	BPA_adjust_angle_degree:LREAL:=0;//degree
+	BPA_adjust_x:LREAL:=-0.1;
+	BPA_adjust_y:LREAL:=0;
+	BLPA_adjust_distance_desire:ARRAY[0..1,0..2] OF LREAL:=[0,0,0,
+															0,0,0];//[0,-0.01,0,0,0.01,0]																												
+	curlingPushModel        :  UINT   := 0;
+	curlingPushModelList :  ARRAY[0..1] OF WSTRING(20) := ["Push", "noPush"];
+	PushFinishDurationTimeIn:LREAL:=1;
+	slideTimeIn:LREAL:=0.3;
+	ArmRetractControl:BOOL:=FALSE;
+	AC_AngleDegIn:LREAL:=-40;
+	
+	gripBallThighTargetAngle:LREAL:=167.5;
+	gripBallShankTargetAngle:LREAL:=171;
+	
+	//init value
+	adjust_angle_degree_init:LREAL:=0;//degree
+	target_vel_init:LREAL:=2;//m/s
+	stone_rot_vel_init:LREAL:=-60;//rpm
+	PushVelocityIn_init:LREAL:=2.3;
+	BPA_adjust_angle_degree_init:LREAL:=0;//degree
+	BPA_adjust_x_init:LREAL:=-0.1;
+	BPA_adjust_y_init:LREAL:=0;
+	BLPA_adjust_distance_desire_init:ARRAY[0..1,0..2] OF LREAL:=[0,0,0,
+															0,0,0];	
+	curlingPushModel_init        :  UINT   := 0;	
+	PushFinishDurationTimeIn_init:LREAL:=1;
+	slideTimeIn_init:LREAL:=0.3;
+	ArmRetractControl_init:BOOL:=FALSE;
+	AC_AngleDegIn_init:LREAL:=-40;	
+
+	//BLegSlip
+	BLegSlip_trot_vel_desire:LREAL:=0;
+	BLegSlip_side_vel_desire:LREAL:=0;
+	BLegSlip_turn_rate_desire:LREAL:=0;
+	BLegSlip_step:ARRAY [0..2] OF LREAL:=[0.05,0.05,0.05];
+	
+	//TrotWalk
+	TrotWalk_trot_vel_desire:LREAL:=0;
+	TrotWalk_side_vel_desire:LREAL:=0;
+	TrotWalk_turn_rate_desire:LREAL:=0;
+	TrotWalk_step:ARRAY [0..2] OF LREAL:=[0.15,0.15,0.15];	
+	period_desire:LREAL:=1.4;
+	duty_desire:LREAL:=0.5;
+	step_height_desire:LREAL:=0.06;
+	
+	//liftbody
+	RestButton:BOOL:=FALSE;
+	WorkButton:BOOL:=FALSE;
+	ReduceDistance:LREAL:=-0.08;
+	IsRest:BOOL:=FALSE;
+	IsRcCurling:BOOL:=FALSE;
+	IsPreLiftBody:BOOL:=FALSE;
+	IsLiftBody:BOOL:=FALSE;
+	RcEndFlagLast:BOOL:=FALSE;
+	RcStartFlag:BOOL:=FALSE;
+	RcEndFlag:BOOL:=FALSE;
+	EnterPreLiftBodyCount:UDINT:=0;
+	LiftBodyStartFlag:BOOL:=FALSE;
+	LiftBodyEndFlag:BOOL:=FALSE;
+	LiftBodyEndFlagLast:BOOL:=FALSE;
+	
+	IsWork:BOOL:=FALSE;
+	
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

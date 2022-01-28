@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="VecCross" Id="{343506ab-92e5-4f3a-976b-8034bb8fb413}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION VecCross : Vec3
+VAR_INPUT
+	a, b : Vec3;
+END_VAR
+VAR
+	a1, a2, a3 : LREAL;
+	b1, b2, b3 : LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[a1 := a.data[0];
+a2 := a.data[1];
+a3 := a.data[2];
+b1 := b.data[0];
+b2 := b.data[1];
+b3 := b.data[2];
+
+VecCross.data[0] := a2*b3 - a3*b2;
+VecCross.data[1] := a3*b1 - a1*b3;
+VecCross.data[2] := a1*b2 - a2*b1;
+]]></ST>
+    </Implementation>
+    <LineIds Name="VecCross">
+      <LineId Id="7" Count="0" />
+      <LineId Id="11" Count="1" />
+      <LineId Id="14" Count="1" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="19" Count="1" />
+      <LineId Id="18" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

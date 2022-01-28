@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="Atan2" Id="{852dd33c-be8f-4b96-9343-0b250d365706}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION Atan2 : LREAL//输出角度范围为[-pi,pi]
+VAR_INPUT
+	y : LREAL;
+	x : LREAL;
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF ABS(x)<1E-6 THEN
+	IF y>=0 THEN
+		Atan2 := pi/2;
+	ELSE
+		Atan2 := -pi/2;
+	END_IF
+ELSE
+	IF x<0 AND y>=0 THEN
+		Atan2 := ATAN(y/x) + pi;
+	ELSIF x<0 AND y<0 THEN
+		Atan2 := ATAN(y/x) - pi;
+	ELSE
+		Atan2 := ATAN(y/x);
+	END_IF
+END_IF]]></ST>
+    </Implementation>
+    <LineIds Name="Atan2">
+      <LineId Id="7" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="16" Count="1" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="18" Count="1" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="20" Count="0" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="22" Count="1" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="12" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

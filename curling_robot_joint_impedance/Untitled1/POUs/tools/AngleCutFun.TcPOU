@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="AngleCutFun" Id="{20341012-9832-4374-a3f9-5c952cab3428}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION AngleCutFun : lreal
+VAR_INPUT
+	angRow:LREAL;
+	upper:LREAL;
+	lower:LREAL;
+	rangLength:LREAL;
+END_VAR
+VAR
+	angCutted:LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[angCutted:=angRow;
+WHILE(angCutted>upper OR angCutted<lower) DO
+    IF angCutted>upper THEN
+        angCutted:=angCutted-rangLength;
+    else
+        angCutted:=angCutted+rangLength;
+    END_IF
+END_WHILE
+AngleCutFun:=angCutted;]]></ST>
+    </Implementation>
+    <LineIds Name="AngleCutFun">
+      <LineId Id="11" Count="6" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="20" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

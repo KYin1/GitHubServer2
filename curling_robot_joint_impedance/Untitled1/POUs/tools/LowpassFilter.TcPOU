@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="LowpassFilter" Id="{be7d3aa7-8bde-449a-96dc-ee63b9d3bf3f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK LowpassFilter
+VAR_INPUT
+	x : LREAL;
+	y : LREAL;
+	ydot : LREAL;
+END_VAR
+VAR_OUTPUT
+	yout : LREAL;
+	ydotout : LREAL;
+END_VAR
+VAR
+	cutFreq : LREAL := 100.0;
+	wcut: LREAL := 2 * pi * cutFreq;
+	w: LREAL := 1/wcut;
+	wwcut : LREAL := 1/w/w;
+	dt_: LREAL:= 1.0/DINT_TO_LREAL(gvl.sampleRate);
+	yddot: LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[yddot := wwcut*(x - y - 2 * 0.707 * w * ydot);
+ydotout := ydot + yddot * dt_;
+yout := y + ydotout * dt_;
+]]></ST>
+    </Implementation>
+    <LineIds Name="LowpassFilter">
+      <LineId Id="3" Count="2" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

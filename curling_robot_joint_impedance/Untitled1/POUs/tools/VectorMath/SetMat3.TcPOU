@@ -1,0 +1,43 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="SetMat3" Id="{40cb32a5-6549-4924-8757-e28a1c3e6519}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION SetMat3 : Mat3
+VAR_INPUT
+	x_11:LREAL;
+	x_12:LREAL;
+	x_13:LREAL;
+	x_21:LREAL;
+	x_22:LREAL;
+	x_23:LREAL;
+	x_31:LREAL;
+	x_32:LREAL;
+	x_33:LREAL;
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SetMat3.data[0,0]:=x_11;
+SetMat3.data[0,1]:=x_12;
+SetMat3.data[0,2]:=x_13;
+
+SetMat3.data[1,0]:=x_21;
+SetMat3.data[1,1]:=x_22;
+SetMat3.data[1,2]:=x_23;
+
+SetMat3.data[2,0]:=x_31;
+SetMat3.data[2,1]:=x_32;
+SetMat3.data[2,2]:=x_33;]]></ST>
+    </Implementation>
+    <LineIds Name="SetMat3">
+      <LineId Id="9" Count="0" />
+      <LineId Id="19" Count="1" />
+      <LineId Id="22" Count="2" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="26" Count="2" />
+      <LineId Id="25" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

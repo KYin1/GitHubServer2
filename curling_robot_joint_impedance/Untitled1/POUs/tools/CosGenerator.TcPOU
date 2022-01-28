@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="CosGenerator" Id="{79b82070-ef74-456b-9a9e-a50efc052bc2}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK CosGenerator
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+	cosineSignalOut : LREAL;
+END_VAR
+VAR
+	cosineSignal : LREAL;
+	generatorCount : UDINT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF GVL.initCosGenerator THEN
+	cosineSignal   := 0;   
+	generatorCount := 0;
+END_IF
+
+IF GVL.cosStart THEN
+   generatorCount := generatorCount + 1;
+   cosineSignal := GVL.cosAmplitude * (1 - COS( 2 * pi * GVL.cosFrequency * generatorCount / 1.0 / gvl.sampleRate));
+END_IF
+
+IF GVL.cosStop THEN
+   IF ABS(cosineSignal) < 0.00001 THEN  
+	  GVL.cosStart  := FALSE;	
+      GVL.cosStop   := FALSE;	
+      generatorCount := 0;	  
+   END_IF
+END_IF
+
+cosineSignalOut := cosineSignal;]]></ST>
+    </Implementation>
+    <LineIds Name="CosGenerator">
+      <LineId Id="39" Count="17" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

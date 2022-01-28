@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="MatTranspose" Id="{e8b3e56d-ffa0-4e92-9e7e-d00c9b8c618d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION MatTranspose : Mat3
+VAR_INPUT
+	m : Mat3;
+END_VAR
+VAR
+	i, j : INT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR i := 0 TO 2 DO
+	FOR j := 0 TO 2 DO
+		MatTranspose.data[j, i] := m.data[i, j];
+	END_FOR
+END_FOR]]></ST>
+    </Implementation>
+    <LineIds Name="MatTranspose">
+      <LineId Id="7" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="12" Count="1" />
+      <LineId Id="11" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

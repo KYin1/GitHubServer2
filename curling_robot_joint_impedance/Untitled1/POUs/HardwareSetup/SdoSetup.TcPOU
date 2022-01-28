@@ -1,0 +1,112 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="SdoSetup" Id="{963ca6f4-c322-4e1e-a415-0c6dc714ffc7}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK SdoSetup
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	bInitTrqSensorSDOCompleted        : ARRAY[0..2]  OF BOOL := [TRUE, FALSE, FALSE];
+	bInitMotorDriveSDOCompleted       : ARRAY[0..18]  OF BOOL := [TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, 
+                                                                  FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE];
+	//trqSensorSdoSetup       : ARRAY[1..2]  OF TrqSensorSetup;
+	driveSdoSetup           : ARRAY[1..18] OF MotorDriveSetup;
+	trqSensorAdds           : ARRAY[1..3]  OF UINT := [1019, 1020,1021];
+	driveAdds               : ARRAY[1..18] OF UINT := [1001, 1002, 1003,
+                                                       1004, 1005, 1006,
+                                                       1007, 1008, 1009,
+                                                       1010, 1011, 1012,
+                                                       1013, 1014, 1015,
+                                                       1016, 1017, 1018];
+													   
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="InitSdoConfig" Id="{af0fa900-ef87-4c5f-a41d-58d5b5dfbb9a}">
+      <Declaration><![CDATA[METHOD PUBLIC InitSdoConfig : BOOL
+VAR_INPUT
+END_VAR
+
+VAR
+	i: INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*FOR i := 1 TO 2 DO
+	IF bInitTrqSensorSDOCompleted[i-1] AND NOT bInitTrqSensorSDOCompleted[i] THEN // yk 第一个板子写完再写第二个，依次进行，0号值为true
+		trqSensorSdoSetup[i].InitSDOs(board_id := i, bCompleted => bInitTrqSensorSDOCompleted[i]);
+	END_IF
+END_FOR
+
+IF bInitTrqSensorSDOCompleted[1] AND bInitTrqSensorSDOCompleted[2] THEN
+	FOR i := 1 TO 12 DO
+		IF bInitMotorDriveSDOCompleted[i-1] AND NOT bInitMotorDriveSDOCompleted[i] THEN // 同理写完一个再写下一个，1ms刷新整个程序，for循环执行一次是微秒级，但是硬件写需要一定时间。
+			driveSdoSetup[i].InitHomeConfig(bCompleted => bInitMotorDriveSDOCompleted[i]);
+		END_IF
+	END_FOR
+END_IF
+*)
+
+	FOR i := 1 TO 18 DO//yk 如果调试1条腿，需要将其改为2
+		IF bInitMotorDriveSDOCompleted[i-1] AND NOT bInitMotorDriveSDOCompleted[i] THEN // 同理写完一个再写下一个，1ms刷新整个程序，for循环执行一次是微秒级，但是硬件写需要一定时间。
+			//driveSdoSetup[i].InitHomeConfig(bCompleted => bInitMotorDriveSDOCompleted[i]);
+			driveSdoSetup[i].SetVelocityUnit(bCompleted => bInitMotorDriveSDOCompleted[i]);
+		END_IF
+	END_FOR
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetSlaveAddr" Id="{0f0b2815-a67e-45db-af4b-13603793c29c}">
+      <Declaration><![CDATA[METHOD PUBLIC SetSlaveAddr : BOOL//设置从站地址和home位置记为0,sdo相关编码从1到18
+VAR_INPUT
+END_VAR
+VAR
+	i : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*
+FOR i := 1 TO 2 DO
+	trqSensorSdoSetup[i].SetSlaveAddr(sNetId := '169.254.112.4.6.1', nSlaveAddr := trqSensorAdds[i]);
+END_FOR
+*)
+
+FOR i := 1 TO 18 DO     //yk 写1号到18号驱动器的home参数
+	//driveSdoSetup[i].SetSlaveAddr(sNetId := '120.1.1.15.4.1', nSlaveAddr := driveAdds[i]);//冰壶1参数
+	driveSdoSetup[i].SetSlaveAddr(sNetId := '10.0.0.119.4.1', nSlaveAddr := driveAdds[i]);//冰壶2参数
+	//driveSdoSetup[i].SetHomeOffset(LREAL_TO_DINT(gvl.posHomeOffsets[i-1]/180.0*pi/gvl.count2radianRatio));
+	//driveSdoSetup[i].SetHomeOffset(0);
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="SdoSetup">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="SdoSetup.InitSdoConfig">
+      <LineId Id="6" Count="3" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="17" Count="3" />
+      <LineId Id="15" Count="1" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="29" Count="3" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="33" Count="1" />
+      <LineId Id="28" Count="0" />
+    </LineIds>
+    <LineIds Name="SdoSetup.SetSlaveAddr">
+      <LineId Id="13" Count="0" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="6" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="7" Count="2" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

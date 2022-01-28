@@ -1,0 +1,499 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="RecoverGait" Id="{741b9f54-5baf-4679-8fb8-c54ae5df6c44}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK RecoverGait
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	isFinished : BOOL := FALSE;
+	tRetract   : LREAL := 3;
+	tWait      : LREAL := 1;
+	tExtend    : LREAL := 3;
+	jntAngStart:ARRAY[0..5,0..2] OF LREAL;
+	jntAngRetract0:ARRAY[0..5,0..2] OF LREAL:=[0,150.7997*pi/180,291.8958*pi/180,
+											  0,327.8142*pi/180,(196.8366-327.8142)*pi/180,
+											  0,172.5134*pi/180,(269.4767-172.5134)*pi/180,
+											  0,172.5134*pi/180,(269.4767-172.5134)*pi/180,
+											  0,327.8142*pi/180,(196.8366-327.8142)*pi/180,
+											  0,150.7997*pi/180,291.8958*pi/180];//walk
+	jntAngRetract1:ARRAY[0..5,0..2] OF LREAL:=[0,163.1808*pi/180,297.208*pi/180,
+											  0,322.9120*pi/180,(205.1705-322.9120)*pi/180,
+											  0,183.8227*pi/180,(269.8634-183.8227)*pi/180,
+											  0,183.8227*pi/180,(269.8634-183.8227)*pi/180,
+											  0,322.9120*pi/180,(205.1705-322.9120)*pi/180,
+											  0,163.1808*pi/180,297.208*pi/180];//curling	
+	jntAngRetract:ARRAY[0..5,0..2] OF LREAL	;								  
+
+	jntAngExtend0:ARRAY[0..5,0..2] OF LREAL:=[0,163.1808*pi/180,297.208*pi/180,
+											 0,320.9331*pi/180,(208.0880-320.9331)*pi/180,	
+											 0,187.8384*pi/180,(269.4264-187.8384)*pi/180,
+											 0,187.8384*pi/180,(269.4264-187.8384)*pi/180,
+									         0,320.9331*pi/180,(208.0880-320.9331)*pi/180,
+											 0,163.1808*pi/180,297.208*pi/180];//walk
+	jntAngExtend1:ARRAY[0..5,0..2] OF LREAL:=[0,181.9845*pi/180,299.9603*pi/180,
+											 0,302.7132*pi/180,(230.9946-302.7132)*pi/180,	
+											 0,222.0252*pi/180,(254.0072-222.0252)*pi/180,
+											 0,222.0252*pi/180,(254.0072-222.0252)*pi/180,
+									         0,302.7132*pi/180,(230.9946-302.7132)*pi/180,
+											 0,181.9845*pi/180,299.9603*pi/180];//curling
+	jntAngExtend:ARRAY[0..5,0..2] OF LREAL;										 
+											 
+										 
+	pivot, pivotDot : LREAL;
+	getPivot  : GetPivot;	
+	fbGetPivot  : GetPivot;
+	pvt, pvtDot : LREAL;
+
+	jointPosTarget  : ARRAY[0..5, 0..2] OF LREAL; 
+	jointVelTarget  : ARRAY[0..5, 0..2] OF LREAL;  
+	jointFceTarget  : ARRAY[0..5, 0..2] OF LREAL;	
+
+	tipForceDesire:ARRAY[0..5,0..2] OF LREAL;
+	jntTrqDesire:ARRAY[0..5,0..2] OF LREAL;
+	fceLoadTime:LREAL:=0.5;
+	tipForceDesireGroupA:ARRAY[0..5,0..2] OF LREAL:=[0,-125,0,
+													 0,0,0,
+													 0,0,0,
+													 0,0,0,
+													 0,0,0,
+													 0,0,0];
+	tipForceDesireGroupB:ARRAY[0..5,0..2] OF LREAL:=[0,0,0,
+													 0,0,0,
+													 0,0,0,
+													 0,0,0,
+													 0,0,0,
+													 0,-145,0];
+	tipForceDesireZeros:ARRAY[0..5,0..2] OF LREAL:=[0,0,0,
+													 0,0,0,
+													 0,0,0,
+													 0,0,0,
+													 0,0,0,
+													 0,0,0];								 
+											 
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="DoPlanning" Id="{42ebc314-632b-4dd4-a061-8ed0a572f722}">
+      <Declaration><![CDATA[METHOD PUBLIC DoPlanning : BOOL
+VAR_INPUT
+		count : UDINT;
+END_VAR
+VAR
+	tTotal: LREAL;
+	tNow: LREAL;
+	tr:LREAL;
+	
+	jntPosBegin : ARRAY[0..5, 0..2] OF LREAL;
+	jntPosEnd   : ARRAY[0..5, 0..2] OF LREAL;
+	
+	legExtractRefPosCurling: ARRAY[0..5, 0..2] OF LREAL:=[-0.35,-0.3+0.02,0,
+														  0.1,-0.3+0.02,-0.1246,
+														  -0.3+0.05,-0.3+0.02,-0.1246,
+														  -0.3+0.05,-0.3+0.02,0.1246,
+														  0.1,-0.3+0.02,0.1246,
+														  -0.35,-0.3+0.02,0];//-0.15 for front leg
+	jntExtractRefPosCurling: ARRAY[0..5, 0..2] OF LREAL:=[0,163.1808*pi/180,297.208*pi/180,
+											  			  0,322.9120*pi/180,(205.1705-322.9120)*pi/180,
+											              0,183.8227*pi/180,(269.8634-183.8227)*pi/180,
+											              0,183.8227*pi/180,(269.8634-183.8227)*pi/180,
+											              0,322.9120*pi/180,(205.1705-322.9120)*pi/180,
+											              0,163.1808*pi/180,297.208*pi/180];
+														  
+	(*legExtendRefPosCurling: ARRAY[0..5, 0..2] OF LREAL:=[-0.35,-0.3805-0.07,0,
+														  0.1,-0.4-0.07,-0.1246,
+														  -0.3,-0.4-0.07,-0.1246,
+														  -0.3,-0.4-0.07,0.1246,
+														  0.1,-0.4-0.07,0.1246,
+														  -0.35,-0.3805-0.07,0];//before change tip*)
+	legExtendRefPosCurling: ARRAY[0..5, 0..2] OF LREAL:=[-0.35,-0.4-0.07,0,
+														  0.1,-0.4-0.07,-0.1246,
+														  -0.3+0.05,-0.4-0.07,-0.1246,
+														  -0.3+0.05,-0.4-0.07,0.1246,
+														  0.1,-0.4-0.07,0.1246,
+														  -0.35,-0.4-0.07,0];//-0.15 for front leg														 
+	
+	jntExtendRefPosCurling: ARRAY[0..5, 0..2] OF LREAL:=[0,181.9845*pi/180,299.9603*pi/180,
+											 			 0,302.7132*pi/180,(230.9946-302.7132)*pi/180,	
+											             0,222.0252*pi/180,(254.0072-222.0252)*pi/180,
+											             0,222.0252*pi/180,(254.0072-222.0252)*pi/180,
+									                     0,302.7132*pi/180,(230.9946-302.7132)*pi/180,
+											             0,181.9845*pi/180,299.9603*pi/180]	;	
+									  
+	legExtractRefPosWalk:    ARRAY[0..5, 0..2] OF LREAL:=[-0.35,-0.3+0.08,0,
+														  0.1,-0.3209+0.08,-0.1246,
+														  -0.3+0.05,-0.3209+0.08,-0.1246,
+														  -0.3+0.05,-0.3209+0.08,0.1246,
+														  0.1,-0.3209+0.08,0.1246,
+														  -0.35,-0.3+0.08,0];	
+														  
+	jntExtractRefPosWalk: ARRAY[0..5, 0..2] OF LREAL:= [0,150.7997*pi/180,291.8958*pi/180,
+											  			0,327.8142*pi/180,(196.8366-327.8142)*pi/180,
+											  			0,172.5134*pi/180,(269.4767-172.5134)*pi/180,
+											  			0,172.5134*pi/180,(269.4767-172.5134)*pi/180,
+											  			0,327.8142*pi/180,(196.8366-327.8142)*pi/180,
+											  			0,150.7997*pi/180,291.8958*pi/180];													  
+														  
+	(*legExtendRefPosWalk: ARRAY[0..5, 0..2] OF LREAL    :=[-0.35,-0.3,0,
+														  0.1,-0.3209,-0.1246,
+														  -0.3,-0.3209,-0.1246,
+														  -0.3,-0.3209,0.1246,
+														  0.1,-0.3209,0.1246,
+														  -0.35,-0.3,0];//before change tip*)
+	legExtendRefPosWalk: ARRAY[0..5, 0..2] OF LREAL    :=[-0.35,-0.3209,0,
+														  0.1,-0.3209,-0.1246,
+														  -0.3+0.05,-0.3209,-0.1246,
+														  -0.3+0.05,-0.3209,0.1246,
+														  0.1,-0.3209,0.1246,
+														  -0.35,-0.3209,0];														  
+														  
+														  
+	jntExtendRefPosWalk: ARRAY[0..5, 0..2] OF LREAL:=	   [0,163.1808*pi/180,297.208*pi/180,
+											 				0,320.9331*pi/180,(208.0880-320.9331)*pi/180,	
+											 				0,187.8384*pi/180,(269.4264-187.8384)*pi/180,
+															0,187.8384*pi/180,(269.4264-187.8384)*pi/180,
+									         				0,320.9331*pi/180,(208.0880-320.9331)*pi/180,
+											 				0,163.1808*pi/180,297.208*pi/180];																						 
+	i: INT;
+	j: INT;
+	tempLeg:ARRAY [0..2] OF LREAL;
+	tempJnt:ARRAY [0..2] OF LREAL;
+	tempRef:ARRAY [0..2] OF LREAL;
+	
+	tempTipForce:ARRAY [0..2] OF LREAL;
+	temJntActPos:ARRAY [0..2] OF LREAL;
+	tempDesJntTrq:ARRAY [0..2] OF LREAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF count = 0 THEN
+	isFinished := FALSE;
+	FOR i:=0 TO 5 DO
+		tempLeg[0]:=legExtractRefPosCurling[i,0];tempLeg[1]:=legExtractRefPosCurling[i,1];tempLeg[2]:=legExtractRefPosCurling[i,2];
+		tempRef[0]:=jntExtractRefPosCurling[i,0];tempRef[1]:=jntExtractRefPosCurling[i,1];tempRef[2]:=jntExtractRefPosCurling[i,2];
+		GVL.legCtrl[i].InverseKinetics(tipPosition:=tempLeg , refPosLast:=tempRef , legIndex:=i , motorAngles=>tempJnt , isSingular=> );
+		jntAngRetract1[i,0]:=tempJnt[0];jntAngRetract1[i,1]:=tempJnt[1];jntAngRetract1[i,2]:=tempJnt[2];
+		
+		tempLeg[0]:=legExtractRefPosWalk[i,0];tempLeg[1]:=legExtractRefPosWalk[i,1];tempLeg[2]:=legExtractRefPosWalk[i,2];
+		tempRef[0]:=jntExtractRefPosWalk[i,0];tempRef[1]:=jntExtractRefPosWalk[i,1];tempRef[2]:=jntExtractRefPosWalk[i,2];
+		GVL.legCtrl[i].InverseKinetics(tipPosition:=tempLeg , refPosLast:=tempRef , legIndex:=i , motorAngles=>tempJnt , isSingular=> );
+		jntAngRetract0[i,0]:=tempJnt[0];jntAngRetract0[i,1]:=tempJnt[1];jntAngRetract0[i,2]:=tempJnt[2];
+		
+		tempLeg[0]:=legExtendRefPosCurling[i,0];tempLeg[1]:=legExtendRefPosCurling[i,1];tempLeg[2]:=legExtendRefPosCurling[i,2];
+		tempRef[0]:=jntExtendRefPosCurling[i,0];tempRef[1]:=jntExtendRefPosCurling[i,1];tempRef[2]:=jntExtendRefPosCurling[i,2];
+		GVL.legCtrl[i].InverseKinetics(tipPosition:=tempLeg , refPosLast:=tempRef , legIndex:=i , motorAngles=>tempJnt , isSingular=> );
+		jntAngExtend1[i,0]:=tempJnt[0];jntAngExtend1[i,1]:=tempJnt[1];jntAngExtend1[i,2]:=tempJnt[2];		
+		
+		tempLeg[0]:=legExtendRefPosWalk[i,0];tempLeg[1]:=legExtendRefPosWalk[i,1];tempLeg[2]:=legExtendRefPosWalk[i,2];
+		tempRef[0]:=jntExtendRefPosWalk[i,0];tempRef[1]:=jntExtendRefPosWalk[i,1];tempRef[2]:=jntExtendRefPosWalk[i,2];
+		GVL.legCtrl[i].InverseKinetics(tipPosition:=tempLeg , refPosLast:=tempRef , legIndex:=i , motorAngles=>tempJnt , isSingular=> );
+		jntAngExtend0[i,0]:=tempJnt[0];jntAngExtend0[i,1]:=tempJnt[1];jntAngExtend0[i,2]:=tempJnt[2];		
+	END_FOR
+	
+	IF gvl.RcGaitId=0 THEN
+		jntAngRetract:=jntAngRetract0;
+		jntAngExtend:=jntAngExtend0;
+	ELSE
+		jntAngRetract:=jntAngRetract1;
+		jntAngExtend:=jntAngExtend1;			
+	END_IF
+	
+	FOR i := 0 TO 5 DO
+		FOR j := 0 TO 2 DO
+			IF ABS(gvl.jntLastRefPos[i, j] - gvl.jntActualPos[i, j]) < 0.2 THEN
+				jntAngStart[i,j] := gvl.jntLastRefPos[i, j];
+			ELSE
+				jntAngStart[i,j] := gvl.jntActualPos[i, j];
+			END_IF
+			jntAngStart[i,j]:=MinDistanceValue(jntAngStart[i,j],gvl.jntRefPosLastPlanning[i,j]);
+			
+		END_FOR
+	END_FOR	
+	
+	tipForceDesire:=tipForceDesireZeros;	
+END_IF
+
+IF count<=(tRetract + tWait + tExtend) * gvl.sampleRate THEN //leg 0-2-4 recovery
+	
+//******************************force compensator******************************
+	IF count<=fceLoadTime*gvl.sampleRate THEN
+		tr  := UDINT_TO_LREAL(count) / gvl.sampleRate /fceLoadTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+		FOR i:=0 TO 5 DO
+			FOR j:=0 TO 2 DO
+				tipForceDesire[i,j]:=(1-pvt)*tipForceDesireZeros[i,j]+pvt*tipForceDesireGroupB[i,j];
+			END_FOR
+		END_FOR
+	ELSIF count>LREAL_TO_UDINT((tRetract + tWait + tExtend-fceLoadTime)*gvl.sampleRate) AND count<=LREAL_TO_UDINT((tRetract + tWait + tExtend) * gvl.sampleRate) THEN
+		tr  := (UDINT_TO_LREAL(count) / gvl.sampleRate-(tRetract + tWait + tExtend-fceLoadTime) )/fceLoadTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				//tipForceDesire[i,j]:=(1-pvt)*tipForceDesireZeros[i,j]+pvt*tipForceDesireGroupA[i,j];//group A add load
+				tipForceDesire[i+1,j]:=(1-pvt)*tipForceDesireGroupB[i+1,j]+pvt*tipForceDesireZeros[i+1,j];//group B reduce load
+			END_FOR
+		END_FOR
+	ELSE
+		tipForceDesire:=tipForceDesireGroupB;
+	END_IF
+//************************************************************************************
+	
+	IF count < tRetract * gvl.sampleRate THEN
+		tTotal := tRetract;
+		tNow   := UDINT_TO_LREAL(count) * 1.0 / DINT_TO_LREAL(gvl.sampleRate);
+		//jntPosBegin REF= jntAngStart;
+		jntPosBegin := jntAngStart;
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				jntPosEnd[i,j]:=jntAngRetract[i,j];
+				jntPosEnd[i+1,j]:=jntAngStart[i+1,j];
+			END_FOR
+		END_FOR
+	ELSIF count < (tRetract + tWait) * gvl.sampleRate THEN
+		tTotal := tWait;
+		tNow   := UDINT_TO_LREAL(count) * 1.0 / DINT_TO_LREAL(gvl.sampleRate) - tRetract;
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				jntPosBegin[i,j]:=jntAngRetract[i,j];
+				jntPosBegin[i+1,j]:=jntAngStart[i+1,j];
+				jntPosEnd[i,j]:=jntAngRetract[i,j];
+				jntPosEnd[i+1,j]:=jntAngStart[i+1,j];
+			END_FOR
+		END_FOR
+	ELSE 
+		tTotal := tExtend;
+		tNow   := UDINT_TO_LREAL(count) * 1.0 / DINT_TO_LREAL(gvl.sampleRate) - tRetract - tWait;
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				jntPosBegin[i,j]:=jntAngRetract[i,j];
+				jntPosBegin[i+1,j]:=jntAngStart[i+1,j];
+				jntPosEnd[i,j]:=jntAngExtend[i,j];
+				jntPosEnd[i+1,j]:=jntAngStart[i+1,j];
+			END_FOR
+		END_FOR	
+	END_IF	
+ELSIF count<=2*(tRetract + tWait + tExtend) * gvl.sampleRate  THEN //leg 1-3-5 recovery
+
+//******************************force compensator******************************
+	IF count>LREAL_TO_UDINT((tRetract + tWait + tExtend)*gvl.sampleRate) AND count<=LREAL_TO_UDINT((tRetract + tWait + tExtend+fceLoadTime)* gvl.sampleRate) THEN
+		tr  := (UDINT_TO_LREAL(count) / gvl.sampleRate-(tRetract + tWait + tExtend) )/fceLoadTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				tipForceDesire[i,j]:=(1-pvt)*tipForceDesireZeros[i,j]+pvt*tipForceDesireGroupA[i,j];//group A add load
+				tipForceDesire[i+1,j]:=tipForceDesireZeros[i+1,j];//group B zeros load
+			END_FOR
+		END_FOR		
+	ELSIF count>LREAL_TO_UDINT((2*(tRetract + tWait + tExtend)-fceLoadTime)*gvl.sampleRate) AND count<=LREAL_TO_UDINT(2*(tRetract + tWait + tExtend) * gvl.sampleRate) THEN
+		tr  := (UDINT_TO_LREAL(count) / gvl.sampleRate-(2*(tRetract + tWait + tExtend)-fceLoadTime) )/fceLoadTime;
+		fbGetPivot(tNow := tr, tTotal := 1.0, pivot => pvt);
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				tipForceDesire[i,j]:=(1-pvt)*tipForceDesireGroupA[i,j]+pvt*tipForceDesireZeros[i,j];//group A reduce load
+				tipForceDesire[i+1,j]:=tipForceDesireZeros[i+1,j];//group B zeros load
+			END_FOR
+		END_FOR		
+	ELSE	
+		tipForceDesire:=tipForceDesireGroupA;
+	END_IF
+//*********************************************************************************
+	
+	IF count<=(2*tRetract + tWait + tExtend) * gvl.sampleRate THEN
+		tTotal := tRetract;
+		tNow   := UDINT_TO_LREAL(count) * 1.0 / DINT_TO_LREAL(gvl.sampleRate)-(tRetract + tWait + tExtend);
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				jntPosBegin[i,j]:=jntAngExtend[i,j];
+				jntPosBegin[i+1,j]:=jntAngStart[i+1,j];
+				jntPosEnd[i,j]:=jntAngExtend[i,j];
+				jntPosEnd[i+1,j]:=jntAngRetract[i+1,j];
+			END_FOR
+		END_FOR			
+	ELSIF count<=(2*tRetract + 2*tWait + tExtend) * gvl.sampleRate THEN
+		tTotal := tWait;
+		tNow   := UDINT_TO_LREAL(count) * 1.0 / DINT_TO_LREAL(gvl.sampleRate) - (2*tRetract + tWait + tExtend);
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				jntPosBegin[i,j]:=jntAngExtend[i,j];
+				jntPosBegin[i+1,j]:=jntAngRetract[i+1,j];
+				jntPosEnd[i,j]:=jntAngExtend[i,j];
+				jntPosEnd[i+1,j]:=jntAngRetract[i+1,j];
+			END_FOR
+		END_FOR			
+	ELSE
+		tTotal := tExtend;
+		tNow   := UDINT_TO_LREAL(count) * 1.0 / DINT_TO_LREAL(gvl.sampleRate) - (2*tRetract + 2*tWait + tExtend);
+		FOR i:=0 TO 5 BY 2 DO
+			FOR j:=0 TO 2 DO
+				jntPosBegin[i,j]:=jntAngExtend[i,j];
+				jntPosBegin[i+1,j]:=jntAngRetract[i+1,j];
+				jntPosEnd[i,j]:=jntAngExtend[i,j];
+				jntPosEnd[i+1,j]:=jntAngExtend[i+1,j];
+			END_FOR
+		END_FOR			
+	END_IF
+ELSE
+	tTotal := 100;
+	tNow   := UDINT_TO_LREAL(count) * 1.0 / DINT_TO_LREAL(gvl.sampleRate) - 2*tRetract - 2*tWait - 2*tExtend;
+	jntPosBegin :=jntAngExtend;
+	jntPosEnd :=jntAngExtend;
+	tipForceDesire:=tipForceDesireZeros;
+END_IF
+
+getPivot(tNow := tNow, tTotal := tTotal, pivot => pivot, pivotDot => pivotDot);
+
+tipForceDesire:=tipForceDesireZeros;//力补偿control button******************************************************************************************************	
+FOR i:=0 TO 5 DO
+	tempTipForce[0]:=tipForceDesire[i,0];tempTipForce[1]:=tipForceDesire[i,1];tempTipForce[2]:=tipForceDesire[i,2];
+	temJntActPos[0]:=gvl.jntActualPos[i,0];temJntActPos[1]:=gvl.jntActualPos[i,1];temJntActPos[2]:=gvl.jntActualPos[i,2];
+	gvl.legCtrl[i].DesireDriveForce(fTipDes:=tempTipForce , motorAng:=temJntActPos , legIndex:=i , fDrvDes=>tempDesJntTrq );
+	jntTrqDesire[i,0]:=tempDesJntTrq[0];jntTrqDesire[i,1]:=tempDesJntTrq[1];jntTrqDesire[i,2]:=tempDesJntTrq[2];
+END_FOR
+
+FOR i := 0 TO 5 DO
+	FOR j := 0 TO 2 DO
+		jointPosTarget[i, j] := (1.0 - pivot) * jntPosBegin[i, j] + pivot * jntPosEnd[i, j];
+		gvl.jntRefPosLastPlanning[i,j]:=jointPosTarget[i, j] ;
+		jointVelTarget[i, j] := - pivotDot * jntPosBegin[i, j] + pivotDot * jntPosEnd[i, j];
+		jointFceTarget[i, j] := jntTrqDesire[i,j];
+	END_FOR
+END_FOR
+	
+// exit condition
+IF count >= (2*tExtend + 2*tRetract + 2*tWait) * gvl.sampleRate + 3 THEN
+	isFinished := TRUE;
+END_IF
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="RecoverGait">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="RecoverGait.DoPlanning">
+      <LineId Id="21" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="306" Count="0" />
+      <LineId Id="309" Count="0" />
+      <LineId Id="312" Count="0" />
+      <LineId Id="307" Count="0" />
+      <LineId Id="314" Count="0" />
+      <LineId Id="318" Count="0" />
+      <LineId Id="320" Count="2" />
+      <LineId Id="319" Count="0" />
+      <LineId Id="323" Count="0" />
+      <LineId Id="325" Count="2" />
+      <LineId Id="324" Count="0" />
+      <LineId Id="315" Count="0" />
+      <LineId Id="329" Count="2" />
+      <LineId Id="328" Count="0" />
+      <LineId Id="308" Count="0" />
+      <LineId Id="252" Count="0" />
+      <LineId Id="232" Count="0" />
+      <LineId Id="231" Count="0" />
+      <LineId Id="233" Count="1" />
+      <LineId Id="237" Count="0" />
+      <LineId Id="235" Count="1" />
+      <LineId Id="200" Count="0" />
+      <LineId Id="204" Count="6" />
+      <LineId Id="215" Count="1" />
+      <LineId Id="212" Count="0" />
+      <LineId Id="201" Count="0" />
+      <LineId Id="434" Count="1" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="213" Count="0" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="676" Count="1" />
+      <LineId Id="525" Count="0" />
+      <LineId Id="532" Count="1" />
+      <LineId Id="526" Count="0" />
+      <LineId Id="535" Count="2" />
+      <LineId Id="530" Count="0" />
+      <LineId Id="541" Count="0" />
+      <LineId Id="543" Count="3" />
+      <LineId Id="550" Count="0" />
+      <LineId Id="552" Count="0" />
+      <LineId Id="551" Count="0" />
+      <LineId Id="549" Count="0" />
+      <LineId Id="539" Count="1" />
+      <LineId Id="527" Count="0" />
+      <LineId Id="415" Count="0" />
+      <LineId Id="538" Count="0" />
+      <LineId Id="29" Count="0" />
+      <LineId Id="53" Count="0" />
+      <LineId Id="61" Count="1" />
+      <LineId Id="180" Count="0" />
+      <LineId Id="63" Count="1" />
+      <LineId Id="67" Count="0" />
+      <LineId Id="70" Count="0" />
+      <LineId Id="68" Count="0" />
+      <LineId Id="65" Count="0" />
+      <LineId Id="55" Count="0" />
+      <LineId Id="71" Count="4" />
+      <LineId Id="78" Count="1" />
+      <LineId Id="81" Count="0" />
+      <LineId Id="76" Count="0" />
+      <LineId Id="82" Count="10" />
+      <LineId Id="77" Count="0" />
+      <LineId Id="54" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="674" Count="0" />
+      <LineId Id="559" Count="0" />
+      <LineId Id="567" Count="2" />
+      <LineId Id="572" Count="4" />
+      <LineId Id="570" Count="0" />
+      <LineId Id="666" Count="7" />
+      <LineId Id="665" Count="0" />
+      <LineId Id="565" Count="0" />
+      <LineId Id="557" Count="0" />
+      <LineId Id="556" Count="0" />
+      <LineId Id="675" Count="0" />
+      <LineId Id="436" Count="0" />
+      <LineId Id="93" Count="0" />
+      <LineId Id="95" Count="0" />
+      <LineId Id="101" Count="0" />
+      <LineId Id="103" Count="6" />
+      <LineId Id="102" Count="0" />
+      <LineId Id="97" Count="1" />
+      <LineId Id="110" Count="0" />
+      <LineId Id="113" Count="6" />
+      <LineId Id="111" Count="0" />
+      <LineId Id="99" Count="0" />
+      <LineId Id="120" Count="8" />
+      <LineId Id="100" Count="0" />
+      <LineId Id="96" Count="0" />
+      <LineId Id="129" Count="0" />
+      <LineId Id="94" Count="0" />
+      <LineId Id="130" Count="2" />
+      <LineId Id="437" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="166" Count="0" />
+      <LineId Id="133" Count="0" />
+      <LineId Id="767" Count="0" />
+      <LineId Id="766" Count="0" />
+      <LineId Id="428" Count="4" />
+      <LineId Id="427" Count="0" />
+      <LineId Id="433" Count="0" />
+      <LineId Id="155" Count="2" />
+      <LineId Id="195" Count="0" />
+      <LineId Id="158" Count="7" />
+      <LineId Id="138" Count="14" />
+      <LineId Id="30" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

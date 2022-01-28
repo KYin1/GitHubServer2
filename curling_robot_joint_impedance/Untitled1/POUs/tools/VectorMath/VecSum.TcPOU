@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="VecSum" Id="{8bbe2ea5-a582-4b33-aecd-eae4ceee4ebe}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION VecSum : Vec3
+VAR_INPUT
+	a : ARRAY[0..3] OF Vec3; 
+END_VAR
+VAR
+	i: INT;
+	sum : Vec3;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[sum := SetVec3(0, 0, 0);
+FOR i := 0 TO 3 DO
+	sum := VecAdd(sum, a[i]);
+END_FOR
+VecSum := sum;]]></ST>
+    </Implementation>
+    <LineIds Name="VecSum">
+      <LineId Id="13" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="9" Count="1" />
+      <LineId Id="14" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

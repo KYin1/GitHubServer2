@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="VecAdd" Id="{9a38d8a7-f9a5-4b94-a045-01f1cfce1efb}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION VecAdd : Vec3
+VAR_INPUT
+	a, b : Vec3;
+END_VAR
+VAR
+	i : INT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR i := 0 TO 2 DO
+    VecAdd.data[i] := a.data[i] + b.data[i]; 
+END_FOR]]></ST>
+    </Implementation>
+    <LineIds Name="VecAdd">
+      <LineId Id="10" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="11" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

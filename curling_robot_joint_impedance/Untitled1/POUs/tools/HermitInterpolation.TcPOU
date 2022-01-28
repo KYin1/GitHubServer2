@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="HermitInterpolation" Id="{23cfdd5b-aac3-4a5b-a74a-270fb643d22b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK PUBLIC HermitInterpolation
+VAR_INPUT
+	t0, T  : LREAL;
+	y0, y1 : LREAL;
+	v0, v1 : LREAL;
+	tNow   : LREAL;
+END_VAR
+VAR_OUTPUT
+	y, v : LREAL;
+END_VAR
+VAR
+	tr, v0r, v1r : LREAL;
+	a, b, c, d : LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[tr  := (tNow - t0) / T;
+v0r := v0 * T;
+v1r := v1 * T;
+a :=  2 * (y0 - y1) + v0r + v1r;
+b := -3 * (y0 - y1) - 2 * v0r - v1r;
+c := v0r;
+d := y0;
+
+y :=    a * tr*tr*tr   +   b * tr*tr + c * tr + d;
+v := (3*a * tr*tr      + 2*b * tr    + c) / T;
+]]></ST>
+    </Implementation>
+    <LineIds Name="HermitInterpolation">
+      <LineId Id="18" Count="9" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

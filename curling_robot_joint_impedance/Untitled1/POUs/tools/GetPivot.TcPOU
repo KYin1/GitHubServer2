@@ -1,0 +1,51 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="GetPivot" Id="{949da76d-1643-4a29-86f8-074b26389f00}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK GetPivot
+VAR_INPUT
+	tNow : LREAL;
+	tTotal : LREAL;
+END_VAR
+VAR_OUTPUT
+	pivot : LREAL;
+	pivotDot : LREAL;
+END_VAR
+VAR
+	tr : LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[//yk  归一化规划，前半段时间匀加速到0.5，后半段时间匀减速到1
+tr := tNow / tTotal;
+
+IF tr <= 0 THEN
+	pivot := 0;
+	pivotDot := 0;
+ELSIF tr <= 0.5 THEN
+	pivot := 2.0 * tr * tr;
+	pivotDot := 4.0 * tr;
+ELSIF tr <= 1 THEN
+	pivot := -2.0 * tr * tr + 4.0 * tr - 1.0;
+	pivotDot := -4.0 * tr + 4.0;
+ELSE
+	pivot := 1;
+	pivotDot := 0;
+END_IF]]></ST>
+    </Implementation>
+    <LineIds Name="GetPivot">
+      <LineId Id="55" Count="0" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="38" Count="0" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="42" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="21" Count="0" />
+      <LineId Id="19" Count="1" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="35" Count="2" />
+      <LineId Id="18" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

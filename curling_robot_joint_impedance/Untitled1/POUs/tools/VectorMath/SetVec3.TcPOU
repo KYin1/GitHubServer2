@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="SetVec3" Id="{68a40bf6-8eb8-42ec-bb2a-85ae7114286a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION SetVec3 : Vec3
+VAR_INPUT
+	a,b,c : LREAL;
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SetVec3.data[0] := a;
+SetVec3.data[1] := b;
+SetVec3.data[2] := c;]]></ST>
+    </Implementation>
+    <LineIds Name="SetVec3">
+      <LineId Id="7" Count="0" />
+      <LineId Id="9" Count="1" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

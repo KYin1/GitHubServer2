@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="Min3Value" Id="{d3569c0e-c991-4a07-b224-6c72c55ebf19}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION Min3Value : lreal
+VAR_INPUT
+	a0:LREAL;
+	a1:LREAL;
+	a2:LREAL;
+END_VAR
+VAR
+	b: LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[b:=MIN(a0,a1);
+IF b<a2 THEN
+	 Min3Value:=b;
+ELSE
+	 Min3Value:=a2;
+END_IF]]></ST>
+    </Implementation>
+    <LineIds Name="Min3Value">
+      <LineId Id="7" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="15" Count="1" />
+      <LineId Id="14" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

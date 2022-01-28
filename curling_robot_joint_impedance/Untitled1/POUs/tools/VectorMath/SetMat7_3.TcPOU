@@ -1,0 +1,84 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="SetMat7_3" Id="{e70132cd-18c1-4604-8ee6-eb3f82adadab}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION SetMat7_3 :  ARRAY [0..6,0..2] OF int
+VAR_INPUT
+	x_11:INT;
+	x_12:INT;
+	x_13:INT;
+	x_21:INT;
+	x_22:INT;
+	x_23:INT;
+	x_31:INT;
+	x_32:INT;
+	x_33:INT;
+	x_41:INT;
+	x_42:INT;
+	x_43:INT;
+	x_51:INT;
+	x_52:INT;
+	x_53:INT;
+	x_61:INT;
+	x_62:INT;
+	x_63:INT;
+	x_71:INT;
+	x_72:INT;
+	x_73:INT;
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SetMat7_3 [0,0]:=x_11;
+SetMat7_3 [0,1]:=x_12;
+SetMat7_3 [0,2]:=x_13;
+
+SetMat7_3 [1,0]:=x_21;
+SetMat7_3 [1,1]:=x_22;
+SetMat7_3 [1,2]:=x_23;
+
+SetMat7_3 [2,0]:=x_31;
+SetMat7_3 [2,1]:=x_32;
+SetMat7_3 [2,2]:=x_33;
+
+SetMat7_3 [3,0]:=x_41;
+SetMat7_3 [3,1]:=x_42;
+SetMat7_3 [3,2]:=x_43;
+
+SetMat7_3 [4,0]:=x_51;
+SetMat7_3 [4,1]:=x_52;
+SetMat7_3 [4,2]:=x_53;
+
+SetMat7_3 [5,0]:=x_61;
+SetMat7_3 [5,1]:=x_62;
+SetMat7_3 [5,2]:=x_63;
+
+SetMat7_3 [6,0]:=x_71;
+SetMat7_3 [6,1]:=x_72;
+SetMat7_3 [6,2]:=x_73;
+
+]]></ST>
+    </Implementation>
+    <LineIds Name="SetMat7_3">
+      <LineId Id="9" Count="0" />
+      <LineId Id="19" Count="1" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="73" Count="1" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="76" Count="2" />
+      <LineId Id="75" Count="0" />
+      <LineId Id="80" Count="2" />
+      <LineId Id="79" Count="0" />
+      <LineId Id="84" Count="2" />
+      <LineId Id="83" Count="0" />
+      <LineId Id="90" Count="2" />
+      <LineId Id="89" Count="0" />
+      <LineId Id="94" Count="2" />
+      <LineId Id="93" Count="0" />
+      <LineId Id="88" Count="0" />
+      <LineId Id="87" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

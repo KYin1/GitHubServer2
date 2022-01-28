@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="MatMulVec" Id="{ecceaa20-50c2-43b0-ab41-2e814e6251a0}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION MatMulVec : Vec3
+VAR_INPUT
+	m : Mat3;
+	v : Vec3;
+END_VAR
+VAR
+	i, j : INT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR i := 0 TO 2 DO
+	MatMulVec.data[i] := m.data[i, 0] * v.data[0] + m.data[i, 1] * v.data[1] + m.data[i, 2] * v.data[2];
+END_FOR]]></ST>
+    </Implementation>
+    <LineIds Name="MatMulVec">
+      <LineId Id="7" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="11" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

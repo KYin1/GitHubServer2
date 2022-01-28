@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <DUT Name="Motor" Id="{12b9fe33-4daa-4f4b-af99-94ec470e18e8}">
+    <Declaration><![CDATA[TYPE Motor :
+STRUCT
+	statusWord AT%I*: UINT;
+	opModeDisp AT%I*: SINT;
+	actualPos  AT%I*: DINT;  
+	actualVel  AT%I*: DINT;  
+	actualTrq  AT%I*: INT; 
+	digInputs  AT%I*: DINT;
+	
+	ctrlWord   AT%Q*: UINT;
+	opMode     AT%Q*: USINT;
+    targetPos  AT%Q*: DINT   :=0;  
+	targetVel  AT%Q*: DINT   :=0;
+	targetTrq  AT%Q*: INT    :=0;
+	maxTrq     AT%Q*: INT    :=2000;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

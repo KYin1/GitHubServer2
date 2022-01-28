@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="ElipseInterpolation" Id="{8556012b-3c86-4845-8ae0-a01079e375f4}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ElipseInterpolation
+VAR_INPUT
+	x0:LREAL;
+	y0:LREAL;
+	z0:LREAL;
+	x1:LREAL;
+	y1:LREAL;
+	z1:LREAL;
+	h:LREAL;
+	T:LREAL;
+	t0:LREAL;
+	tNow:LREAL;
+END_VAR
+VAR_OUTPUT
+	x:LREAL;
+	y:LREAL;
+	z:LREAL;
+END_VAR
+VAR
+	s0:LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[s0:=0.5*pi-0.5*pi*COS(pi*(tNow-t0)/T);
+x:=x0+(x1-x0)/2*(1-COS(s0));
+y:=y0+(y1-y0)/2*(1-COS(s0));
+IF s0<=0.5*pi THEN
+	z:=z0+h*SIN(s0);
+ELSE
+	z:=z1+(h-z1+z0)*SIN(s0);
+END_IF]]></ST>
+    </Implementation>
+    <LineIds Name="ElipseInterpolation">
+      <LineId Id="9" Count="0" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="28" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="29" Count="2" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

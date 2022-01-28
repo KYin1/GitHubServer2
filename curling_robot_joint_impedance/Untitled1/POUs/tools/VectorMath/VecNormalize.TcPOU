@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
+  <POU Name="VecNormalize" Id="{7cb7a3c3-0f84-4b9e-8aba-6af6635ab7dc}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION VecNormalize : Vec3
+VAR_INPUT
+	a : Vec3;
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[VecNormalize := VecMulNum(a, 1/VecNorm(a));
+]]></ST>
+    </Implementation>
+    <LineIds Name="VecNormalize">
+      <LineId Id="7" Count="0" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>
